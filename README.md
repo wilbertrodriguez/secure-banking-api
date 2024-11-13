@@ -24,7 +24,7 @@ This project is a secure REST API for managing banking transactions. It supports
 Follow these steps to set up the project locally.
 
 1. Clone the repository  
-   `git clone https://github.com/wilbertrodriguez/secure-bank-api.git`
+   `git clone https://github.com/yourusername/secure-banking-api.git`
 
 2. Create a Virtual Environment  
    `python -m venv venv`
@@ -51,6 +51,31 @@ To run the development server locally, use the following command:
 `python manage.py runserver`
 
 Visit `http://127.0.0.1:8000` in your browser to interact with the API.
+
+## Completed Phases
+
+### Phase 1: Project Setup
+
+In this phase, we set up the project repository and initialized the basic structure:
+
+- Created a GitHub repository for version control.
+- Set up Django REST Framework and PostgreSQL for database management.
+- Installed necessary dependencies and configured the environment.
+
+### Phase 2: User Authentication
+
+We implemented basic user authentication with JWT for session management:
+
+- **User Registration**: Implemented registration endpoint with hashed passwords using `create_user`.
+- **Login**: Developed a login endpoint to generate JWT tokens upon successful authentication.
+- **Multi-Factor Authentication (MFA)**: Integrated MFA for extra security during login.
+
+### Phase 3: Role-Based Access Control (RBAC)
+
+This phase focused on defining user roles and restricting access to certain API endpoints based on those roles:
+
+- **User Roles**: Defined roles (admin, user).
+- **Access Control**: Implemented middleware or decorators to enforce role-based permissions on specific endpoints.
 
 ## API Documentation
 
