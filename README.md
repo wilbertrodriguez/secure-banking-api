@@ -24,7 +24,7 @@ This project is a secure REST API for managing banking transactions. It supports
 Follow these steps to set up the project locally.
 
 1. Clone the repository  
-   `git clone https://github.com/yourusername/secure-banking-api.git`
+   `git clone https://github.com/wilbertrodriguez/secure-bank-api.git`
 
 2. Create a Virtual Environment  
    `python -m venv venv`
