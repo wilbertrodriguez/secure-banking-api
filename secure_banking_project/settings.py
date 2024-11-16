@@ -44,9 +44,11 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework.authtoken',
     'banking_api',
     'corsheaders',
     'django_extensions',
+    'rest_framework_simplejwt',
 ]
 
 MIDDLEWARE = [
@@ -79,6 +81,25 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'secure_banking_project.wsgi.application'
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': 'transactions.log',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file'],
+            'level': 'ERROR',
+            'propagate': True,
+        },
+    },
+}
 
 
 # Database
@@ -161,6 +182,7 @@ SIMPLE_JWT = {
 
 # CORS settings
 CORS_ALLOWED_ORIGINS = [
+    "http://127.0.0.1:8000",
     "http://localhost:3000",  # Add trusted origins for API access
 ]
 
