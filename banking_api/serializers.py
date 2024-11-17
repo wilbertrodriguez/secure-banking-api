@@ -36,28 +36,45 @@ class TransactionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Amount must be greater than zero.")
         return value
 
+    def validate(self, attrs):
+        sender = attrs.get('sender')
+        receiver = attrs.get('receiver')
+        amount = attrs.get('amount')
+
+        if sender == receiver:
+            raise serializers.ValidationError("Sender and receiver cannot be the same.")
+
+        sender_profile = sender.profile
+        if sender_profile.balance < amount:
+            raise serializers.ValidationError("Insufficient balance for transaction.")
+
+        return attrs
+
     def create(self, validated_data):
         sender = validated_data['sender']
         receiver = validated_data['receiver']
         amount = validated_data['amount']
 
-        sender_profile = sender.userprofile
-        receiver_profile = receiver.userprofile
+        sender_profile = sender.profile
+        receiver_profile = receiver.profile
 
-        if sender_profile.balance < amount:
-            raise serializers.ValidationError("Insufficient balance for transaction.")
-
-        # Use atomic block to ensure both profile updates and transaction creation happen atomically
         with transaction.atomic():
+            # Create transaction record
             transaction = Transaction.objects.create(
                 sender=sender,
                 receiver=receiver,
                 amount=amount,
                 status='pending'
             )
+
+            # Update the sender and receiver balances
             sender_profile.balance -= amount
             receiver_profile.balance += amount
             sender_profile.save()
             receiver_profile.save()
+
+            # Mark the transaction as completed
+            transaction.status = 'completed'
+            transaction.save()
 
         return transaction

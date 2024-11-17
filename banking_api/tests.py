@@ -1,21 +1,28 @@
-from rest_framework.test import APITestCase
+#from rest_framework.test import APITestCase
+from django.test import TestCase
 from rest_framework import status
 from django.contrib.auth.models import User
 from .models import UserProfile, Transaction
 from rest_framework.authtoken.models import Token
 
-class TransactionViewTestCase(APITestCase):
+class TransactionViewTestCase(TestCase):
     def setUp(self):
-        # Clean up any existing UserProfile data to avoid unique constraint violations
-        UserProfile.objects.all().delete()
-
-        # Create the user for the test (if it doesn't exist already)
+        UserProfile.objects.all().delete()  # Clear any existing profiles before creating new ones
+        User.objects.all().delete()         # Clear any existing users if needed
+        # Create the user for the test (triggers signal to create UserProfile)
         self.user = User.objects.create_user(username='testuser', password='password')
         self.receiver = User.objects.create_user(username='testreceiver', password='password')
 
-        # Create UserProfile objects for both the sender and receiver users
-        self.user_profile, created = UserProfile.objects.get_or_create(user=self.user, defaults={'balance': 100.00})
-        self.receiver_profile, created = UserProfile.objects.get_or_create(user=self.receiver, defaults={'balance': 100.00})
+        # Fetch the user profiles to ensure they were created by the signal
+        self.user_profile = UserProfile.objects.get(user=self.user)
+        self.receiver_profile = UserProfile.objects.get(user=self.receiver)
+
+        # Initialize balances
+        self.user_profile.balance = 100.00
+        self.user_profile.save()
+
+        self.receiver_profile.balance = 100.00
+        self.receiver_profile.save()
 
         # Generate a token for authentication
         self.token = Token.objects.create(user=self.user)

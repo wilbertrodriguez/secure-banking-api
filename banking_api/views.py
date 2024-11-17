@@ -71,6 +71,12 @@ class TransactionView(APIView):
         except UserProfile.DoesNotExist:
             return Response({"error": "Sender profile not found. Please create a profile."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Ensure the receiver has a profile
+        try:
+            receiver_profile = receiver.profile
+        except UserProfile.DoesNotExist:
+            return Response({"error": "Receiver profile not found. Please create a profile."}, status=status.HTTP_400_BAD_REQUEST)
+
         # Handle the transaction in an atomic block to ensure integrity
         try:
             with db_transaction.atomic():
@@ -80,9 +86,8 @@ class TransactionView(APIView):
 
                 # Update balances atomically
                 sender_profile.balance = F('balance') - float(amount)
-                receiver_profile = receiver.profile
                 receiver_profile.balance = F('balance') + float(amount)
-               
+
                 # Save the updated profiles
                 sender_profile.save()
                 receiver_profile.save()
