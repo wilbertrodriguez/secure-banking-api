@@ -64,7 +64,7 @@ class TransactionView(APIView):
 
     def post(self, request):
         """
-        Handle the creation of a new transaction between two users.
+        Handles the creation of a new transaction between two users.
         """
         sender = request.user
         receiver_id = request.data.get('receiver_id')
@@ -82,54 +82,52 @@ class TransactionView(APIView):
         if amount <= 0:
             return Response({"error": "Amount must be greater than zero"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Check if receiver exists
         try:
             receiver = User.objects.get(id=receiver_id)
         except User.DoesNotExist:
             return Response({"error": "Receiver does not exist"}, status=status.HTTP_404_NOT_FOUND)
 
+        # Ensure the sender and receiver are different
         if sender == receiver:
             return Response({"error": "Sender and receiver cannot be the same"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Ensure the sender has a profile and valid balance
+        # Ensure the sender has a valid profile
         try:
             sender_profile = sender.userprofile
         except UserProfile.DoesNotExist:
             return Response({"error": "Sender profile not found. Please create a profile."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Ensure the receiver has a profile
+        # Ensure the receiver has a valid profile
         try:
             receiver_profile = receiver.userprofile
         except UserProfile.DoesNotExist:
             return Response({"error": "Receiver profile not found. Please create a profile."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Handle the transaction in an atomic block to ensure integrity
+        # Create the transaction and delegate the logic to the model
+        transaction_data = {
+            "sender": sender,
+            "receiver": receiver,
+            "amount": amount,
+        }
+
+        # Create the transaction object but don't save yet
+        transaction = Transaction(**transaction_data)
+
         try:
-            with db_transaction.atomic():
-                # Check if sender has sufficient balance
-                if sender_profile.balance < amount:
-                    return Response({"error": "Insufficient balance"}, status=status.HTTP_400_BAD_REQUEST)
+            # Attempt to complete the transaction logic within the model
+            transaction.complete_transaction()
 
-                # Update balances atomically
-                sender_profile.balance = F('balance') - amount
-                receiver_profile.balance = F('balance') + amount
-
-                # Save the updated profiles
-                sender_profile.save(update_fields=['balance'])
-                receiver_profile.save(update_fields=['balance'])
-
-                # Create the transaction record
-                transaction_data = {
-                    "sender": sender.id,
-                    "receiver": receiver.id,
-                    "amount": amount,
-                    "status": "completed"
+            # Serialize the transaction and return success response
+            serializer = TransactionSerializer(transaction)
+            return Response({
+                "status": "success",
+                "data": {
+                    "message": "Transaction successful",
+                    "transaction": serializer.data
                 }
-                serializer = TransactionSerializer(data=transaction_data)
-                if serializer.is_valid():
-                    serializer.save()  # Save the transaction record
-                    return Response({"status": "success", "data": {"message": "Transaction successful", "transaction": serializer.data}}, status=status.HTTP_201_CREATED)
-                else:
-                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            }, status=status.HTTP_201_CREATED)
+
         except Exception as e:
             logger.error(f"Transaction failed: {str(e)}")
             return Response({"error": "An unexpected error occurred."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

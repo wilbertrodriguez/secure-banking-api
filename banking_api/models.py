@@ -1,9 +1,10 @@
-from django.db import models
+from django.db import models, transaction
 from django.contrib.auth import get_user_model
-from django.db import transaction
 import logging
 from django.contrib.auth.models import Group
 from django.contrib.auth.models import User
+from decimal import Decimal
+from django.db.models import F
 
 logger = logging.getLogger(__name__)
 
@@ -24,42 +25,45 @@ class Transaction(models.Model):
         return f"Transaction from {self.sender.username} to {self.receiver.username} for {self.amount}"
 
     def complete_transaction(self):
-        """Method to complete a transaction (set status to 'completed')."""
+        """
+        Completes the transaction, deducts the sender's balance and adds to the receiver's balance.
+        This method ensures atomicity and handles failures if the sender has insufficient funds.
+        """
         try:
-            sender_profile = self.sender.userprofile
-            receiver_profile = self.receiver.userprofile
+            sender_profile = self.sender.profile
+            receiver_profile = self.receiver.profile
 
-            # Logging for debugging before the transaction
+            # Log the transaction before processing
             logger.info(f"Before transaction: Sender balance = {sender_profile.balance}, Receiver balance = {receiver_profile.balance}")
 
-            # Start atomic block
             with transaction.atomic():
-                if sender_profile.balance >= self.amount:  # Check if sender has enough balance
-                    self.status = 'completed'
-                    sender_profile.balance -= self.amount  # Deduct the amount from sender's balance
-                    receiver_profile.balance += self.amount  # Add the amount to receiver's balance
+                # Check if the sender has enough balance
+                if sender_profile.balance >= self.amount:
+                    # Update balances atomically using F expressions to prevent race conditions
+                    sender_profile.balance = F('balance') - self.amount
+                    receiver_profile.balance = F('balance') + self.amount
 
-                    # Save the updated profiles and transaction
-                    sender_profile.save()
-                    receiver_profile.save()
+                    # Save the updated profiles
+                    sender_profile.save(update_fields=['balance'])
+                    receiver_profile.save(update_fields=['balance'])
+
+                    # Mark the transaction as completed
+                    self.status = 'completed'
                     self.save()
 
-                    # Logging for debugging after the transaction
+                    # Log the successful transaction
                     logger.info(f"Transaction from {self.sender.username} to {self.receiver.username} completed successfully.")
-                    logger.info(f"After transaction: Sender balance = {sender_profile.balance}, Receiver balance = {receiver_profile.balance}")
                 else:
-                    self.fail_transaction("Insufficient funds")  # Fail the transaction if insufficient funds
-
+                    self.fail_transaction("Insufficient funds")
         except Exception as e:
-            self.fail_transaction(str(e))  # Handle any exception during the transaction process
+            self.fail_transaction(str(e))  # In case of failure, mark the transaction as failed
             logger.error(f"Transaction error: {str(e)}")
 
     def fail_transaction(self, reason):
-        """Method to fail a transaction (set status to 'failed' and log the reason)."""
+        """Marks the transaction as failed and logs the reason."""
         self.status = 'failed'
         self.save()
 
-        # Log the failure reason for auditing purposes
         logger.error(f"Transaction from {self.sender.username} to {self.receiver.username} failed: {reason}")
 
 

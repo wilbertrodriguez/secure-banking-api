@@ -3,18 +3,21 @@ from django.dispatch import receiver
 from django.contrib.auth.models import User
 from .models import UserProfile
 import logging
-from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
 @receiver(post_save, sender=User)
 def create_or_save_user_profile(sender, instance, created, **kwargs):
     try:
-        with transaction.atomic():
+        if created:
+            # Only create the profile if it doesn't exist already
+            profile, created = UserProfile.objects.get_or_create(user=instance)
             if created:
-                UserProfile.objects.get_or_create(user=instance)
                 logger.info(f"Profile created for {instance.username}")
             else:
-                logger.info(f"Profile saved for {instance.username}")
+                logger.warning(f"Profile already exists for {instance.username}")
+        else:
+            # This case is triggered when an existing User object is updated
+            logger.info(f"User profile saved for {instance.username}")
     except Exception as e:
         logger.error(f"Error creating or saving profile for {instance.username}: {str(e)}")

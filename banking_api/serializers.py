@@ -70,32 +70,15 @@ class TransactionSerializer(serializers.ModelSerializer):
         receiver = validated_data['receiver']
         amount = validated_data['amount']
 
-        # Safely retrieve the user profiles
-        sender_profile = sender.profile
-        receiver_profile = receiver.profile
+        # Create the transaction record with 'pending' status initially
+        transaction = Transaction.objects.create(
+            sender=sender,
+            receiver=receiver,
+            amount=amount,
+            status='pending'  # Pending until balances are updated
+        )
 
-        try:
-            with transaction.atomic():
-                # Create the transaction record with 'pending' status initially
-                transaction = Transaction.objects.create(
-                    sender=sender,
-                    receiver=receiver,
-                    amount=amount,
-                    status='pending'  # Pending until balances are updated
-                )
+        # Call the model's method to process the transaction
+        transaction.complete_transaction()
 
-                # Update the sender's and receiver's balances
-                sender_profile.balance -= amount
-                receiver_profile.balance += amount
-                sender_profile.save()
-                receiver_profile.save()
-
-                # Mark the transaction as completed once balances are updated
-                transaction.status = 'completed'
-                transaction.save()
-
-            return transaction
-
-        except Exception as e:
-            # In case of an error, rollback and log the issue
-            raise serializers.ValidationError(f"Transaction failed: {str(e)}")
+        return transaction
