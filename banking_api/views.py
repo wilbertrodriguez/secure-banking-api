@@ -1,6 +1,7 @@
+from decimal import Decimal, InvalidOperation
+from django.contrib.auth.models import Group, User
 from rest_framework.permissions import IsAuthenticated, BasePermission
 from rest_framework.pagination import PageNumberPagination
-from django.contrib.auth.models import Group, User
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -8,16 +9,24 @@ from django.db import transaction as db_transaction
 from django.db.models import F, Q
 from .serializers import RegisterSerializer, TransactionSerializer
 from .models import Transaction, UserProfile
+import logging
+
+logger = logging.getLogger(__name__)
 
 class RegisterView(APIView):
     def post(self, request):
+        """
+        Registers a new user, adds them to the 'User' group, and returns a success message.
+        """
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            # Check if the 'User' group exists, or create it
             user_group, created = Group.objects.get_or_create(name='User')
             user.groups.add(user_group)
+            logger.info(f"User {user.username} registered and added to 'User' group.")
             return Response({"message": "User registered successfully"}, status=status.HTTP_201_CREATED)
+        
+        logger.warning("User registration failed due to validation errors.")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -33,6 +42,9 @@ class AdminOnlyView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request):
+        """
+        Endpoint for admins only.
+        """
         return Response({"message": "Welcome, Admin!"}, status=status.HTTP_200_OK)
 
 
@@ -40,6 +52,9 @@ class AccountInfoView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        """
+        Retrieves the account information for the authenticated user.
+        """
         if request.user.groups.filter(name='User').exists():
             return Response({"message": f"Welcome, {request.user.username}!"})
         return Response({"message": "Unauthorized access"}, status=403)
@@ -49,13 +64,24 @@ class TransactionView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        """
+        Handle the creation of a new transaction between two users.
+        """
         sender = request.user
         receiver_id = request.data.get('receiver_id')
         amount = request.data.get('amount')
 
         # Validate input
-        if not receiver_id or not amount or float(amount) <= 0:
-            return Response({"error": "Invalid receiver or amount"}, status=status.HTTP_400_BAD_REQUEST)
+        if not receiver_id or not amount:
+            return Response({"error": "Receiver or amount missing"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            amount = Decimal(amount).quantize(Decimal('0.01'))  # Ensure valid decimal format with precision
+        except InvalidOperation:
+            return Response({"error": "Invalid amount format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if amount <= 0:
+            return Response({"error": "Amount must be greater than zero"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             receiver = User.objects.get(id=receiver_id)
@@ -81,16 +107,16 @@ class TransactionView(APIView):
         try:
             with db_transaction.atomic():
                 # Check if sender has sufficient balance
-                if sender_profile.balance < float(amount):
+                if sender_profile.balance < amount:
                     return Response({"error": "Insufficient balance"}, status=status.HTTP_400_BAD_REQUEST)
 
                 # Update balances atomically
-                sender_profile.balance = F('balance') - float(amount)
-                receiver_profile.balance = F('balance') + float(amount)
+                sender_profile.balance = F('balance') - amount
+                receiver_profile.balance = F('balance') + amount
 
                 # Save the updated profiles
-                sender_profile.save()
-                receiver_profile.save()
+                sender_profile.save(update_fields=['balance'])
+                receiver_profile.save(update_fields=['balance'])
 
                 # Create the transaction record
                 transaction_data = {
@@ -102,12 +128,12 @@ class TransactionView(APIView):
                 serializer = TransactionSerializer(data=transaction_data)
                 if serializer.is_valid():
                     serializer.save()  # Save the transaction record
-                    return Response({"message": "Transaction successful", "transaction": serializer.data}, status=status.HTTP_201_CREATED)
+                    return Response({"status": "success", "data": {"message": "Transaction successful", "transaction": serializer.data}}, status=status.HTTP_201_CREATED)
                 else:
                     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            # Rollback changes if any exception occurs
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"Transaction failed: {str(e)}")
+            return Response({"error": "An unexpected error occurred."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class TransactionHistoryPagination(PageNumberPagination):

@@ -11,15 +11,25 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = ['username', 'password', 'email']
 
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return value
+
     def create(self, validated_data):
         user = User.objects.create_user(
             username=validated_data['username'],
-            email=validated_data['email'],
+            email=validated_data.get('email'),
             password=validated_data['password']
         )
         UserProfile.objects.get_or_create(user=user)  # Ensure profile is created
         return user
 
+
+from rest_framework import serializers
+from django.db import transaction
+from .models import Transaction
+from django.contrib.auth.models import User
 
 class TransactionSerializer(serializers.ModelSerializer):
     sender = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
@@ -42,11 +52,17 @@ class TransactionSerializer(serializers.ModelSerializer):
         amount = attrs.get('amount')
 
         if sender == receiver:
-            raise serializers.ValidationError("Sender and receiver cannot be the same.")
+            raise serializers.ValidationError("You cannot send funds to yourself.")
 
-        sender_profile = sender.profile
+        # Safely retrieve the user profiles
+        sender_profile = sender.profile if hasattr(sender, 'profile') else None
+        receiver_profile = receiver.profile if hasattr(receiver, 'profile') else None
+
+        if not sender_profile or not receiver_profile:
+            raise serializers.ValidationError("Both sender and receiver must have associated profiles.")
+
         if sender_profile.balance < amount:
-            raise serializers.ValidationError("Insufficient balance for transaction.")
+            raise serializers.ValidationError("You do not have enough balance to complete this transaction.")
 
         return attrs
 
@@ -55,6 +71,7 @@ class TransactionSerializer(serializers.ModelSerializer):
         receiver = validated_data['receiver']
         amount = validated_data['amount']
 
+        # Safely retrieve the user profiles
         sender_profile = sender.profile
         receiver_profile = receiver.profile
 

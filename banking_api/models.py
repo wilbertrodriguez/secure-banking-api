@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 import logging
 from django.contrib.auth.models import Group
+from django.contrib.auth.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +71,14 @@ class UserProfile(models.Model):
         return f"{self.user.username}'s profile"
 
     def save(self, *args, **kwargs):
-        # Automatically create a user profile when a User instance is created
+        # Ensure profile is only created once
         if not self.pk:
-            super().save(*args, **kwargs)
-            logger.info(f"Profile for user {self.user.username} created with initial balance.")
+            # Check if the user already has a profile
+            if not UserProfile.objects.filter(user=self.user).exists():
+                super().save(*args, **kwargs)
+                logger.info(f"Profile for user {self.user.username} created with initial balance.")
+            else:
+                logger.info(f"Profile for user {self.user.username} already exists.")
         else:
             super().save(*args, **kwargs)
 

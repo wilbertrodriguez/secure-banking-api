@@ -1,68 +1,108 @@
-#from rest_framework.test import APITestCase
-from django.test import TestCase
+from rest_framework.test import APIClient
 from rest_framework import status
 from django.contrib.auth.models import User
-from .models import UserProfile, Transaction
 from rest_framework.authtoken.models import Token
+from django.test import TransactionTestCase
+from .models import UserProfile, Transaction
+from django.db import connection
 
-class TransactionViewTestCase(TestCase):
+
+class TransactionViewTestCase(TransactionTestCase):
     def setUp(self):
-        UserProfile.objects.all().delete()  # Clear any existing profiles before creating new ones
-        User.objects.all().delete()         # Clear any existing users if needed
-        # Create the user for the test (triggers signal to create UserProfile)
-        self.user = User.objects.create_user(username='testuser', password='password')
-        self.receiver = User.objects.create_user(username='testreceiver', password='password')
+        # Ensure database is clean before each test
+        print("Cleaning up the database before test...")
+        self.clean_database()
 
-        # Fetch the user profiles to ensure they were created by the signal
-        self.user_profile = UserProfile.objects.get(user=self.user)
-        self.receiver_profile = UserProfile.objects.get(user=self.receiver)
+        # Create users for testing
+        print("Creating users for testing...")
+        self.user = User.objects.create_user(username='testuser', email='testuser@example.com', password='password')
+        self.receiver = User.objects.create_user(username='testreceiver', email='testreceiver@example.com', password='password')
 
-        # Initialize balances
-        self.user_profile.balance = 100.00
-        self.user_profile.save()
+        # Create user profiles for the users
+        print("Creating user profiles...")
+        self.user_profile = UserProfile.objects.create(user=self.user, balance=100.00)
+        self.receiver_profile = UserProfile.objects.create(user=self.receiver, balance=100.00)
 
-        self.receiver_profile.balance = 100.00
-        self.receiver_profile.save()
-
-        # Generate a token for authentication
+        # Create API token for the user
+        print("Creating API token for the user...")
         self.token = Token.objects.create(user=self.user)
 
-        # Define the transaction creation URL (ensure this matches your actual URL path)
-        self.url = '/transactions/create/'  # Update with your actual URL path
+        # Initialize APIClient
+        print("Initializing API client...")
+        self.client = APIClient()
+
+        # Set authorization header for the user
+        print("Setting authorization header for the user...")
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token.key}')
+
+        # Define the URL for transaction creation
+        self.url = '/api/transactions/'
+        print(f"Transaction creation URL set to: {self.url}")
+
+    def tearDown(self):
+        # Clean up after each test
+        print("Cleaning up after test...")
+        self.clean_database()
+
+        # Reset the database and make sure auto-increment fields are reset
+        print("Closing database connection...")
+        connection.close()
+
+    def clean_database(self):
+        # Explicitly delete the users and related profiles to ensure no conflicts in the test
+        print("Deleting all user profiles, users, and tokens...")
+        UserProfile.objects.all().delete()
+        User.objects.all().delete()
+        Token.objects.all().delete()
 
     def test_transaction_creation(self):
-        # Example test for creating a transaction
-        # Create transaction data
+        print("Starting the test for transaction creation.")
+
+        # Prepare the transaction data
         transaction_data = {
-            'receiver_id': self.receiver.id,  # Pass the receiver's ID (not username)
-            'amount': 50.00,  # Amount to be transferred
+            'receiver_id': self.receiver.id,
+            'amount': 50.00,
         }
+        print(f"Transaction data prepared: {transaction_data}")
 
-        # Make the API request to create a transaction
-        response = self.client.post(
-            self.url,
-            data=transaction_data,
-            HTTP_AUTHORIZATION=f'Token {self.token.key}'  # Attach token for authentication
-        )
+        # Send the POST request to create a transaction
+        print("Sending POST request to create a transaction...")
+        response = self.client.post(self.url, data=transaction_data)
 
-        # Assert that the status code is 201 (created)
+        # Print the response for debugging
+        print(f"Response content: {response.content}")
+
+        # Verify the response status code
+        print(f"Checking if response status code is {status.HTTP_201_CREATED}...")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        print("Response status code is correct.")
 
-        # Check that the sender's balance has been updated correctly
-        self.user_profile.refresh_from_db()  # Reload the user's profile from the database
-        self.assertEqual(self.user_profile.balance, 50.00)  # 100 - 50 = 50
+        # Check balances after the transaction
+        print("Refreshing user profile to check updated balance...")
+        self.user_profile.refresh_from_db()
+        print(f"User balance after transaction: {self.user_profile.balance}")
+        self.assertEqual(self.user_profile.balance, 50.00)
 
-        # Check that the receiver's balance has been updated correctly
+        print("Refreshing receiver profile to check updated balance...")
         self.receiver_profile.refresh_from_db()
-        self.assertEqual(self.receiver_profile.balance, 150.00)  # 100 + 50 = 150
+        print(f"Receiver balance after transaction: {self.receiver_profile.balance}")
+        self.assertEqual(self.receiver_profile.balance, 150.00)
 
-        # Check that a transaction record was created
+        # Verify the transaction was created correctly
+        print("Verifying if the transaction was created in the database...")
         transaction = Transaction.objects.last()
-        self.assertEqual(transaction.sender, self.user)
-        self.assertEqual(transaction.receiver, self.receiver)
-        self.assertEqual(transaction.amount, 50.00)
-        self.assertEqual(transaction.status, 'completed')  # Assuming 'completed' is the default status
+        print(f"Transaction details: {transaction}")
 
-        # Optionally: Check if response data includes the transaction information
-        self.assertIn('amount', response.data)
-        self.assertEqual(response.data['amount'], 50.00)
+        print("Checking that transaction sender is correct...")
+        self.assertEqual(transaction.sender, self.user)
+
+        print("Checking that transaction receiver is correct...")
+        self.assertEqual(transaction.receiver, self.receiver)
+
+        print("Checking that transaction amount is correct...")
+        self.assertEqual(transaction.amount, 50.00)
+
+        print("Checking that transaction status is 'completed'...")
+        self.assertEqual(transaction.status, 'completed')
+
+        print("Transaction test completed.")
