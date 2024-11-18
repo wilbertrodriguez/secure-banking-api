@@ -59,7 +59,6 @@ class AccountInfoView(APIView):
             return Response({"message": f"Welcome, {request.user.username}!"})
         return Response({"message": "Unauthorized access"}, status=403)
 
-
 class TransactionView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -93,13 +92,13 @@ class TransactionView(APIView):
 
         # Ensure the sender has a profile and valid balance
         try:
-            sender_profile = sender.profile
+            sender_profile = sender.userprofile
         except UserProfile.DoesNotExist:
             return Response({"error": "Sender profile not found. Please create a profile."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Ensure the receiver has a profile
         try:
-            receiver_profile = receiver.profile
+            receiver_profile = receiver.userprofile
         except UserProfile.DoesNotExist:
             return Response({"error": "Receiver profile not found. Please create a profile."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -134,6 +133,7 @@ class TransactionView(APIView):
         except Exception as e:
             logger.error(f"Transaction failed: {str(e)}")
             return Response({"error": "An unexpected error occurred."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class TransactionHistoryPagination(PageNumberPagination):

@@ -25,12 +25,6 @@ class RegisterSerializer(serializers.ModelSerializer):
         UserProfile.objects.get_or_create(user=user)  # Ensure profile is created
         return user
 
-
-from rest_framework import serializers
-from django.db import transaction
-from .models import Transaction
-from django.contrib.auth.models import User
-
 class TransactionSerializer(serializers.ModelSerializer):
     sender = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
     receiver = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
@@ -42,31 +36,36 @@ class TransactionSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'date', 'status']
 
     def validate_amount(self, value):
+        """Validate that the transaction amount is greater than zero."""
         if value <= 0:
             raise serializers.ValidationError("Amount must be greater than zero.")
         return value
 
     def validate(self, attrs):
+        """Validate sender, receiver, and transaction conditions."""
         sender = attrs.get('sender')
         receiver = attrs.get('receiver')
         amount = attrs.get('amount')
 
+        # Check that sender is not the receiver
         if sender == receiver:
             raise serializers.ValidationError("You cannot send funds to yourself.")
 
-        # Safely retrieve the user profiles
+        # Safely retrieve user profiles
         sender_profile = sender.profile if hasattr(sender, 'profile') else None
         receiver_profile = receiver.profile if hasattr(receiver, 'profile') else None
 
         if not sender_profile or not receiver_profile:
             raise serializers.ValidationError("Both sender and receiver must have associated profiles.")
 
+        # Check if the sender has enough balance
         if sender_profile.balance < amount:
             raise serializers.ValidationError("You do not have enough balance to complete this transaction.")
 
         return attrs
 
     def create(self, validated_data):
+        """Create the transaction and update user balances."""
         sender = validated_data['sender']
         receiver = validated_data['receiver']
         amount = validated_data['amount']
@@ -75,23 +74,28 @@ class TransactionSerializer(serializers.ModelSerializer):
         sender_profile = sender.profile
         receiver_profile = receiver.profile
 
-        with transaction.atomic():
-            # Create transaction record
-            transaction = Transaction.objects.create(
-                sender=sender,
-                receiver=receiver,
-                amount=amount,
-                status='pending'
-            )
+        try:
+            with transaction.atomic():
+                # Create the transaction record with 'pending' status initially
+                transaction = Transaction.objects.create(
+                    sender=sender,
+                    receiver=receiver,
+                    amount=amount,
+                    status='pending'  # Pending until balances are updated
+                )
 
-            # Update the sender and receiver balances
-            sender_profile.balance -= amount
-            receiver_profile.balance += amount
-            sender_profile.save()
-            receiver_profile.save()
+                # Update the sender's and receiver's balances
+                sender_profile.balance -= amount
+                receiver_profile.balance += amount
+                sender_profile.save()
+                receiver_profile.save()
 
-            # Mark the transaction as completed
-            transaction.status = 'completed'
-            transaction.save()
+                # Mark the transaction as completed once balances are updated
+                transaction.status = 'completed'
+                transaction.save()
 
-        return transaction
+            return transaction
+
+        except Exception as e:
+            # In case of an error, rollback and log the issue
+            raise serializers.ValidationError(f"Transaction failed: {str(e)}")

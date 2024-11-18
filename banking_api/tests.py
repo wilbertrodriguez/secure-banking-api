@@ -1,11 +1,10 @@
 from rest_framework.test import APIClient
 from rest_framework import status
 from django.contrib.auth.models import User
-from rest_framework.authtoken.models import Token
+from rest_framework_simplejwt.tokens import RefreshToken
 from django.test import TransactionTestCase
 from .models import UserProfile, Transaction
 from django.db import connection
-
 
 class TransactionViewTestCase(TransactionTestCase):
     def setUp(self):
@@ -20,23 +19,26 @@ class TransactionViewTestCase(TransactionTestCase):
 
         # Create user profiles for the users
         print("Creating user profiles...")
-        self.user_profile = UserProfile.objects.create(user=self.user, balance=100.00)
-        self.receiver_profile = UserProfile.objects.create(user=self.receiver, balance=100.00)
+        #self.user_profile = UserProfile.objects.create(user=self.user, balance=100.00)
+        #self.receiver_profile = UserProfile.objects.create(user=self.receiver, balance=100.00)
+        UserProfile.objects.create(user=self.user, balance=100.00)
+        UserProfile.objects.create(user=self.receiver, balance=100.00)
 
-        # Create API token for the user
-        print("Creating API token for the user...")
-        self.token = Token.objects.create(user=self.user)
+        # Generate JWT token for the user
+        print("Creating JWT token for the user...")
+        refresh = RefreshToken.for_user(self.user)
+        self.access_token = str(refresh.access_token)  # Get the access token
 
         # Initialize APIClient
         print("Initializing API client...")
         self.client = APIClient()
 
-        # Set authorization header for the user
+        # Set authorization header for the user with the JWT token
         print("Setting authorization header for the user...")
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token.key}')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.access_token}')
 
         # Define the URL for transaction creation
-        self.url = '/api/transactions/'
+        self.url = '/api/transactions/'  # Ensure this is the correct URL
         print(f"Transaction creation URL set to: {self.url}")
 
     def tearDown(self):
@@ -53,21 +55,22 @@ class TransactionViewTestCase(TransactionTestCase):
         print("Deleting all user profiles, users, and tokens...")
         UserProfile.objects.all().delete()
         User.objects.all().delete()
-        Token.objects.all().delete()
 
     def test_transaction_creation(self):
         print("Starting the test for transaction creation.")
 
-        # Prepare the transaction data
+        # Prepare the transaction data (use 'receiver' instead of 'receiver_id')
         transaction_data = {
-            'receiver_id': self.receiver.id,
+            'receiver_id': self.receiver.id,  # Correct field name based on the model
             'amount': 50.00,
         }
         print(f"Transaction data prepared: {transaction_data}")
 
         # Send the POST request to create a transaction
         print("Sending POST request to create a transaction...")
-        response = self.client.post(self.url, data=transaction_data)
+        response = self.client.post(self.url, 
+                                    data=transaction_data,
+                                    format='json')
 
         # Print the response for debugging
         print(f"Response content: {response.content}")

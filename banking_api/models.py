@@ -82,6 +82,7 @@ class UserProfile(models.Model):
         else:
             super().save(*args, **kwargs)
 
+
 def create_roles():
     """
     Create the default roles/groups in the system if they don't exist.

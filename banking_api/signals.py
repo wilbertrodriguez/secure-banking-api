@@ -7,7 +7,6 @@ from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
-# This creates or saves a profile for each new user
 @receiver(post_save, sender=User)
 def create_or_save_user_profile(sender, instance, created, **kwargs):
     try:
