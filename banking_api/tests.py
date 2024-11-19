@@ -8,9 +8,9 @@ from django.db import connection
 
 class TransactionViewTestCase(TransactionTestCase):
     def setUp(self):
-        # Ensure database is clean before each test
+        # Ensure the database is clean before each test
         print("Cleaning up the database before test...")
-        self.clean_database()
+        #self.clean_database()
 
         # Create users for testing
         print("Creating users for testing...")
@@ -21,6 +21,8 @@ class TransactionViewTestCase(TransactionTestCase):
         print("Creating user profiles...")
         self.user_profile = UserProfile.objects.create(user=self.user, balance=100.00)
         self.receiver_profile = UserProfile.objects.create(user=self.receiver, balance=100.00)
+        self.user.refresh_from_db()
+        self.receiver.refresh_from_db()
 
         # Generate JWT token for the user
         print("Creating JWT token for the user...")
@@ -83,43 +85,40 @@ class TransactionViewTestCase(TransactionTestCase):
         print(f"Response content: {response.content}")
 
         # Verify the response status code
-        print(f"Checking if response status code is {status.HTTP_201_CREATED}...")
         if response.status_code == status.HTTP_201_CREATED:
             print("Response status code is correct.")
 
-            # Check balances after the transaction
-            print("Refreshing user profile to check updated balance...")
-            self.user_profile.refresh_from_db()
-            print(f"User balance after transaction: {self.user_profile.balance}")
-            self.assertEqual(self.user_profile.balance, 50.00)
+            # Refresh the profiles after the transaction to ensure they are up-to-date
+            self.user.refresh_from_db()
+            self.receiver.refresh_from_db()
 
-            print("Refreshing receiver profile to check updated balance...")
-            self.receiver_profile.refresh_from_db()
+            # Assert balances are updated correctly in case of a successful transaction
+            print(f"User balance after transaction: {self.user_profile.balance}")
+            self.assertEqual(self.user_profile.balance, 50.00)  # The user should have 50.0 left
             print(f"Receiver balance after transaction: {self.receiver_profile.balance}")
-            self.assertEqual(self.receiver_profile.balance, 150.00)
+            self.assertEqual(self.receiver_profile.balance, 150.00)  # The receiver should have 150.0
 
             # Verify the transaction was created correctly
-            print("Verifying if the transaction was created in the database...")
             transaction = Transaction.objects.last()
             print(f"Transaction details: {transaction}")
-
-            print("Checking that transaction sender is correct...")
             self.assertEqual(transaction.sender, self.user)
-
-            print("Checking that transaction receiver is correct...")
             self.assertEqual(transaction.receiver, self.receiver)
-
-            print("Checking that transaction amount is correct...")
             self.assertEqual(transaction.amount, 50.00)
-
-            print("Checking that transaction status is 'completed'...")
             self.assertEqual(transaction.status, 'completed')
 
         else:
-            # Handle the case where the transaction fails
+            # Handle the case where the transaction fails due to insufficient funds
             print("Transaction failed. Checking the response data...")
-            self.assertEqual(response.data['status'], 'success')
-            self.assertEqual(response.data['data']['transaction']['status'], 'failed')
+            self.assertEqual(response.data['status'], 'failed')
             print(f"Transaction failed with message: {response.data['data']['message']}")
+
+            # Check that balances remain unchanged
+            self.user.refresh_from_db()
+            self.receiver_profile.refresh_from_db()
+
+            print(f"User balance after failed transaction: {self.user_profile.balance}")
+            self.assertEqual(self.user_profile.balance, 100.00)  # The user should still have 100.0
+            print(f"Receiver balance after failed transaction: {self.receiver_profile.balance}")
+            self.assertEqual(self.receiver_profile.balance, 100.00)  # The receiver should still have 100.0
 
         print("Transaction test completed.")

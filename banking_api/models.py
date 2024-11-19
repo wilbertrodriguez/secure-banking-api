@@ -30,8 +30,10 @@ class Transaction(models.Model):
         This method ensures atomicity and handles failures if the sender has insufficient funds.
         """
         try:
-            sender_profile = self.sender.profile
-            receiver_profile = self.receiver.profile
+            sender_profile = UserProfile.objects.get(user=self.sender)
+            receiver_profile = UserProfile.objects.get(user=self.receiver)
+            #sender_profile = self.sender.profile
+            #receiver_profile = self.receiver.profile
 
             # Log the transaction before processing
             logger.info(f"Before transaction: Sender balance = {sender_profile.balance}, Receiver balance = {receiver_profile.balance}")
@@ -46,6 +48,9 @@ class Transaction(models.Model):
                     # Save the updated profiles
                     sender_profile.save(update_fields=['balance'])
                     receiver_profile.save(update_fields=['balance'])
+
+                    sender_profile.refresh_from_db()
+                    receiver_profile.refresh_from_db()
 
                     # Mark the transaction as completed
                     self.status = 'completed'
@@ -78,13 +83,20 @@ class UserProfile(models.Model):
         # Ensure profile is only created once
         if not self.pk:
             # Check if the user already has a profile
-            if not UserProfile.objects.filter(user=self.user).exists():
+            try:
+                existing_profile = UserProfile.objects.get(user=self.user)
+                if existing_profile:
+                    logger.info(f"Profile for user {self.user.username} already exists. Skipping creation.")
+                    # Avoid creating a new profile, exit early
+                    return
+            except UserProfile.DoesNotExist:
+                # Profile does not exist, proceed with saving the new profile
                 super().save(*args, **kwargs)
                 logger.info(f"Profile for user {self.user.username} created with initial balance.")
-            else:
-                logger.info(f"Profile for user {self.user.username} already exists.")
         else:
+            # If the profile exists and is being updated, save as usual
             super().save(*args, **kwargs)
+            logger.info(f"Profile for user {self.user.username} updated.")
 
 
 def create_roles():

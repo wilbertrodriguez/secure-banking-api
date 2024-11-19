@@ -1,7 +1,7 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.contrib.auth.models import User
-from .models import UserProfile
+from banking_api.models import UserProfile
 import logging
 
 logger = logging.getLogger(__name__)
@@ -18,6 +18,12 @@ def create_or_save_user_profile(sender, instance, created, **kwargs):
                 logger.warning(f"Profile already exists for {instance.username}")
         else:
             # This case is triggered when an existing User object is updated
-            logger.info(f"User profile saved for {instance.username}")
+            try:
+                profile = UserProfile.objects.get(user=instance)
+                profile.save()  # Save the profile to reflect any changes
+                logger.info(f"User profile updated for {instance.username}")
+            except UserProfile.DoesNotExist:
+                logger.warning(f"User profile does not exist for {instance.username}, but no new profile created.")
+                
     except Exception as e:
         logger.error(f"Error creating or saving profile for {instance.username}: {str(e)}")
