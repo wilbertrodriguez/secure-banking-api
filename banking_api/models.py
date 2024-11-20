@@ -10,6 +10,32 @@ logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
+class UserProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+
+    def __str__(self):
+        return f"{self.user.username}'s profile"
+
+    def save(self, *args, **kwargs):
+        # Ensure profile is only created once
+        if not self.pk:
+            # Check if the user already has a profile
+            try:
+                existing_profile = UserProfile.objects.get(user=self.user)
+                if existing_profile:
+                    logger.info(f"Profile for user {self.user.username} already exists. Skipping creation.")
+                    # Avoid creating a new profile, exit early
+                    return
+            except UserProfile.DoesNotExist:
+                # Profile does not exist, proceed with saving the new profile
+                super().save(*args, **kwargs)
+                logger.info(f"Profile for user {self.user.username} created with initial balance.")
+        else:
+            # If the profile exists and is being updated, save as usual
+            super().save(*args, **kwargs)
+            logger.info(f"Profile for user {self.user.username} updated.")
+
 class Transaction(models.Model):
     sender = models.ForeignKey(User, related_name='sent_transactions', on_delete=models.CASCADE)
     receiver = models.ForeignKey(User, related_name='received_transactions', on_delete=models.CASCADE)
@@ -32,6 +58,7 @@ class Transaction(models.Model):
         try:
             sender_profile = UserProfile.objects.get(user=self.sender)
             receiver_profile = UserProfile.objects.get(user=self.receiver)
+            #print("models ", sender_profile.balance)
             #sender_profile = self.sender.profile
             #receiver_profile = self.receiver.profile
 
@@ -42,6 +69,7 @@ class Transaction(models.Model):
                 # Check if the sender has enough balance
                 if sender_profile.balance >= self.amount:
                     # Update balances atomically using F expressions to prevent race conditions
+                    print('eee')
                     sender_profile.balance = F('balance') - self.amount
                     receiver_profile.balance = F('balance') + self.amount
 
@@ -71,32 +99,6 @@ class Transaction(models.Model):
 
         logger.error(f"Transaction from {self.sender.username} to {self.receiver.username} failed: {reason}")
 
-
-class UserProfile(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
-    balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-
-    def __str__(self):
-        return f"{self.user.username}'s profile"
-
-    def save(self, *args, **kwargs):
-        # Ensure profile is only created once
-        if not self.pk:
-            # Check if the user already has a profile
-            try:
-                existing_profile = UserProfile.objects.get(user=self.user)
-                if existing_profile:
-                    logger.info(f"Profile for user {self.user.username} already exists. Skipping creation.")
-                    # Avoid creating a new profile, exit early
-                    return
-            except UserProfile.DoesNotExist:
-                # Profile does not exist, proceed with saving the new profile
-                super().save(*args, **kwargs)
-                logger.info(f"Profile for user {self.user.username} created with initial balance.")
-        else:
-            # If the profile exists and is being updated, save as usual
-            super().save(*args, **kwargs)
-            logger.info(f"Profile for user {self.user.username} updated.")
 
 
 def create_roles():

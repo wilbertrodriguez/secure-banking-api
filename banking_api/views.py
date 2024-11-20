@@ -63,63 +63,11 @@ class TransactionView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        """
-        Handles the creation of a new transaction between two users.
-        """
-        sender = request.user
-        receiver_id = request.data.get('receiver_id')
-        amount = request.data.get('amount')
-
-        # Validate input
-        if not receiver_id or not amount:
-            return Response({"error": "Receiver or amount missing"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            amount = Decimal(amount).quantize(Decimal('0.01'))  # Ensure valid decimal format with precision
-        except InvalidOperation:
-            return Response({"error": "Invalid amount format"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if amount <= 0:
-            return Response({"error": "Amount must be greater than zero"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Check if receiver exists
-        try:
-            receiver = User.objects.get(id=receiver_id)
-        except User.DoesNotExist:
-            return Response({"error": "Receiver does not exist"}, status=status.HTTP_404_NOT_FOUND)
-
-        # Ensure the sender and receiver are different
-        if sender == receiver:
-            return Response({"error": "Sender and receiver cannot be the same"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Ensure the sender has a valid profile
-        try:
-            sender_profile = sender.userprofile
-        except UserProfile.DoesNotExist:
-            return Response({"error": "Sender profile not found. Please create a profile."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Ensure the receiver has a valid profile
-        try:
-            receiver_profile = receiver.userprofile
-        except UserProfile.DoesNotExist:
-            return Response({"error": "Receiver profile not found. Please create a profile."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Create the transaction and delegate the logic to the model
-        transaction_data = {
-            "sender": sender,
-            "receiver": receiver,
-            "amount": amount,
-        }
-
-        # Create the transaction object but don't save yet
-        transaction = Transaction(**transaction_data)
-
-        try:
-            # Attempt to complete the transaction logic within the model
-            transaction.complete_transaction()
-
-            # Serialize the transaction and return success response
-            serializer = TransactionSerializer(transaction)
+        serializer = TransactionSerializer(data=request.data)
+        print(serializer)
+        if serializer.is_valid():
+            transaction = serializer.save()
+            logger.info(f"Transaction created successfully for {transaction.sender} to {transaction.receiver}")
             return Response({
                 "status": "success",
                 "data": {
@@ -128,9 +76,8 @@ class TransactionView(APIView):
                 }
             }, status=status.HTTP_201_CREATED)
 
-        except Exception as e:
-            logger.error(f"Transaction failed: {str(e)}")
-            return Response({"error": "An unexpected error occurred."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.warning("Transaction creation failed due to validation errors.")
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 

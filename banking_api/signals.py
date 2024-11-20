@@ -12,15 +12,20 @@ def create_or_save_user_profile(sender, instance, created, **kwargs):
         if created:
             # Only create the profile if it doesn't exist already
             profile, created = UserProfile.objects.get_or_create(user=instance)
+            
             if created:
-                logger.info(f"Profile created for {instance.username}")
+                # Initialize the balance if it doesn't exist
+                if profile.balance is None:
+                    profile.balance = 0.00  # Set default balance
+                    profile.save()
+                logger.info(f"Profile created for {instance.username} with initial balance of {profile.balance}")
             else:
                 logger.warning(f"Profile already exists for {instance.username}")
         else:
             # This case is triggered when an existing User object is updated
             try:
                 profile = UserProfile.objects.get(user=instance)
-                profile.save()  # Save the profile to reflect any changes
+                profile.save()  # Save the profile to reflect any changes (e.g., balance changes)
                 logger.info(f"User profile updated for {instance.username}")
             except UserProfile.DoesNotExist:
                 logger.warning(f"User profile does not exist for {instance.username}, but no new profile created.")

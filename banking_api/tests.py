@@ -21,9 +21,15 @@ class TransactionViewTestCase(TransactionTestCase):
         print("Creating user profiles...")
         self.user_profile = UserProfile.objects.create(user=self.user, balance=100.00)
         self.receiver_profile = UserProfile.objects.create(user=self.receiver, balance=100.00)
+
+        self.user_profile.save()
+        self.receiver_profile.save()
+
         self.user.refresh_from_db()
         self.receiver.refresh_from_db()
 
+        print(self.user_profile)
+        print(self.user)
         # Generate JWT token for the user
         print("Creating JWT token for the user...")
         refresh = RefreshToken.for_user(self.user)
@@ -70,7 +76,8 @@ class TransactionViewTestCase(TransactionTestCase):
 
         # Prepare the transaction data
         transaction_data = {
-            'receiver_id': self.receiver.id,  # Correct field name based on the model
+            'sender': self.user.id,
+            'receiver': self.receiver.id,  # Correct field name based on the model
             'amount': transaction_amount,
         }
         print(f"Transaction data prepared: {transaction_data}")
@@ -90,7 +97,7 @@ class TransactionViewTestCase(TransactionTestCase):
 
             # Refresh the profiles after the transaction to ensure they are up-to-date
             self.user.refresh_from_db()
-            self.receiver.refresh_from_db()
+            self.receiver.refresh_from_db()  # Refresh receiver as well
 
             # Assert balances are updated correctly in case of a successful transaction
             print(f"User balance after transaction: {self.user_profile.balance}")
@@ -109,13 +116,19 @@ class TransactionViewTestCase(TransactionTestCase):
         else:
             # Handle the case where the transaction fails due to insufficient funds
             print("Transaction failed. Checking the response data...")
-            self.assertEqual(response.data['status'], 'failed')
-            print(f"Transaction failed with message: {response.data['data']['message']}")
+            # Check if 'status' exists in the response data
+            if 'status' in response.data:
+                self.assertEqual(response.data['status'], 'failed')
+            else:
+                # Assert the presence of validation errors
+                self.assertIn('non_field_errors', response.data)
+                self.assertEqual(response.data['non_field_errors'][0], "You do not have enough balance to complete this transaction.")
+
+            # Refresh both user and receiver balances after the failed transaction attempt
+            self.user.refresh_from_db()
+            self.receiver.refresh_from_db()  # Refresh receiver as well
 
             # Check that balances remain unchanged
-            self.user.refresh_from_db()
-            self.receiver_profile.refresh_from_db()
-
             print(f"User balance after failed transaction: {self.user_profile.balance}")
             self.assertEqual(self.user_profile.balance, 100.00)  # The user should still have 100.0
             print(f"Receiver balance after failed transaction: {self.receiver_profile.balance}")
