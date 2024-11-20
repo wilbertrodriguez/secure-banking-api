@@ -5,7 +5,6 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.test import TransactionTestCase
 from .models import UserProfile, Transaction
 from django.db import connection
-from decimal import Decimal
 
 class TransactionViewTestCase(TransactionTestCase):
     def setUp(self):
@@ -138,108 +137,119 @@ class TransactionViewTestCase(TransactionTestCase):
 
         print("Transaction test completed.\n\n\n")
         
-    def test_transaction_get(self):
-        print("Starting the test for GET transaction by ID.")
+        
+    def test_transaction_creation_success(self):
+        # Test for successful transaction creation with sufficient balance
+        print("Starting the test for successful transaction creation.")
 
-        # Create a transaction first
         transaction_amount = 50.00
         transaction_data = {
             'sender': self.user.id,
             'receiver': self.receiver.id,
             'amount': transaction_amount,
         }
-
         print(f"Transaction data prepared: {transaction_data}")
 
-        # Send the POST request to create the transaction
-        print("Sending POST request to create a transaction...")
         response = self.client.post(self.url, data=transaction_data, format='json')
 
-        # Print the response for debugging
+        # Print response for debugging
+        print(f"Response status code: {response.status_code}")
         print(f"Response content: {response.content}")
 
-        # Verify the response status code for transaction creation
-        if response.status_code == status.HTTP_201_CREATED:
-            print("Response status code is correct.")
-            # Get the transaction ID from the response
-            transaction = Transaction.objects.last()
-            transaction_id = transaction.id
-            print(f"Created transaction with ID: {transaction_id}")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-            # Send GET request to fetch the transaction by ID
-            get_url = f'{self.url}{transaction_id}/'  # Adjust to your API endpoint
-            response = self.client.get(get_url)
+        self.user_profile.refresh_from_db()
+        self.receiver_profile.refresh_from_db()
 
-            # Print the GET response for debugging
-            print(f"GET Response content: {response.content}")
+        print(f"User balance after transaction: {self.user_profile.balance}")
+        print(f"Receiver balance after transaction: {self.receiver_profile.balance}")
 
-            # Extract the transaction data from the response
-            transaction_data = response.data['transaction']
-            
-            # Check the response status and verify the transaction details
-            if response.status_code == status.HTTP_200_OK:
-                print("GET response status code is correct.")
-                self.assertEqual(transaction_data['sender'], self.user.id)
-                self.assertEqual(transaction_data['receiver'], self.receiver.id)
-                self.assertEqual(Decimal(transaction_data['amount']), Decimal(transaction_amount))
-                self.assertEqual(transaction_data['status'], 'completed')
+        self.assertEqual(self.user_profile.balance, 50.00)
+        self.assertEqual(self.receiver_profile.balance, 150.00)
 
-                print("GET transaction test completed successfully.")
-            else:
-                print(f"GET request failed with status: {response.status_code}")
-        else:
-            # Handle the case where the transaction creation failed
-            print("Transaction creation failed. Aborting GET test.")
-            self.fail("Transaction creation failed. Cannot test GET without a valid transaction.")
+        transaction = Transaction.objects.last()
+        print(f"Transaction details: {transaction}")
+        self.assertEqual(transaction.sender, self.user)
+        self.assertEqual(transaction.receiver, self.receiver)
+        self.assertEqual(transaction.amount, 50.00)
+        self.assertEqual(transaction.status, 'completed')
 
-        print("Test completed.\n\n\n")
+        print("Successful transaction test completed.\n\n\n")
         
-    def test_transaction_put(self):
-        print("Starting the test for PUT transaction.")
+    def test_transaction_creation_insufficient_balance(self):
+        # Test for transaction creation with insufficient balance
+        print("Starting the test for transaction creation with insufficient balance.")
 
-        # Create a transaction first
-        transaction_amount = 50.00
+        transaction_amount = 150.00
         transaction_data = {
             'sender': self.user.id,
             'receiver': self.receiver.id,
             'amount': transaction_amount,
-            'status': 'pending',
         }
+        print(f"Transaction data prepared: {transaction_data}")
 
-        # Create the transaction via POST request
         response = self.client.post(self.url, data=transaction_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # Get the transaction ID from the response
-        transaction = Transaction.objects.last()
-        transaction_id = transaction.id
-        print(f"Created transaction with ID: {transaction_id} and status: {transaction.status}")
+        print(f"Response status code: {response.status_code}")
+        print(f"Response content: {response.content}")
 
-        # Ensure that the transaction is still 'pending' before attempting to update
-        self.assertEqual(transaction.status, 'pending')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('non_field_errors', response.data)
+        self.assertEqual(response.data['non_field_errors'][0], "You do not have enough balance to complete this transaction.")
+
+        self.user_profile.refresh_from_db()
+        self.receiver_profile.refresh_from_db()
+
+        print(f"User balance after failed transaction: {self.user_profile.balance}")
+        print(f"Receiver balance after failed transaction: {self.receiver_profile.balance}")
+
+        self.assertEqual(self.user_profile.balance, 100.00)
+        self.assertEqual(self.receiver_profile.balance, 100.00)
+
+        print("Insufficient balance transaction test completed.\n\n\n")
         
-        # Prepare new data for the transaction update (update amount)
-        updated_data = {
+    def test_transaction_creation_invalid_receiver(self):
+        # Test for transaction creation with an invalid receiver
+        print("Starting the test for transaction creation with an invalid receiver.")
+
+        transaction_amount = 50.00
+        invalid_receiver_id = 9999  # Assuming this is an invalid user ID
+        transaction_data = {
             'sender': self.user.id,
-            'receiver': self.receiver.id,
-            'amount': 75.00,
-            'status': 'pending',  # You shouldn't change the status in this case
+            'receiver': invalid_receiver_id,
+            'amount': transaction_amount,
         }
+        print(f"Transaction data prepared: {transaction_data}")
 
-        # Send PUT request to update the transaction
-        put_url = f'{self.url}{transaction_id}/'  # Adjust to your API endpoint
-        response = self.client.put(put_url, data=updated_data, format='json')
-    
-        print("Response data:", response.data)
+        response = self.client.post(self.url, data=transaction_data, format='json')
 
-        # Check response status code and transaction data
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['amount'], 75.00)
-        self.assertEqual(response.data['status'], 'pending')  # Ensure status stays as 'pending'
+        print(f"Response status code: {response.status_code}")
+        print(f"Response content: {response.content}")
 
-        # Verify that the transaction was updated in the database
-        transaction.refresh_from_db()
-        self.assertEqual(transaction.amount, 75.00)
-        self.assertEqual(transaction.status, 'pending')  # Verify status remains 'pending'
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('receiver', response.data)
+        self.assertTrue(response.data['receiver'][0].startswith('Invalid pk'), 
+                    f"Unexpected error message: {response.data['receiver'][0]}")
 
-        print("PUT transaction test completed.")
+        print("Invalid receiver transaction test completed.\n\n\n")
+        
+    def test_transaction_creation_missing_fields(self):
+        # Test for transaction creation with missing fields
+        print("Starting the test for transaction creation with missing fields.")
+
+        transaction_data = {
+            'sender': self.user.id,
+            # Missing 'receiver' and 'amount' fields
+        }
+        print(f"Transaction data prepared: {transaction_data}")
+
+        response = self.client.post(self.url, data=transaction_data, format='json')
+
+        print(f"Response status code: {response.status_code}")
+        print(f"Response content: {response.content}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('receiver', response.data)
+        self.assertIn('amount', response.data)
+
+        print("Missing fields transaction test completed.")

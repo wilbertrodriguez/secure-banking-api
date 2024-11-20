@@ -10,7 +10,8 @@ from django.db.models import F, Q
 from .serializers import RegisterSerializer, TransactionSerializer
 from .models import Transaction, UserProfile
 import logging
-
+from rest_framework.decorators import action
+from django.shortcuts import get_object_or_404
 logger = logging.getLogger(__name__)
 
 class RegisterView(APIView):
@@ -59,7 +60,6 @@ class AccountInfoView(APIView):
             return Response({"message": f"Welcome, {request.user.username}!"})
         return Response({"message": "Unauthorized access"}, status=403)
 
-
 class TransactionView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -95,6 +95,53 @@ class TransactionView(APIView):
         logger.warning(f"Transaction creation failed due to validation errors: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    def get(self, request, transaction_id=None):
+        """
+        Retrieve a specific transaction by ID
+        """
+        if transaction_id:
+            transaction = get_object_or_404(Transaction, id=transaction_id)
+            return Response({
+                'transaction': TransactionSerializer(transaction).data
+            })
+        else:
+            transactions = Transaction.objects.filter(Q(sender=request.user) | Q(receiver=request.user))
+            serializer = TransactionSerializer(transactions, many=True)
+            return Response(serializer.data)
+
+    def put(self, request, transaction_id):
+        """
+        Update an existing transaction (only if not completed)
+        """
+        transaction = get_object_or_404(Transaction, id=transaction_id)
+
+        # Prevent updates to completed transactions
+        if transaction.status == 'completed':
+            return Response({'error': 'Cannot update a completed transaction'}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = TransactionSerializer(transaction, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                "status": "success",
+                "data": serializer.data
+            })
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, transaction_id):
+        """
+        Delete a transaction (only if not completed)
+        """
+        transaction = get_object_or_404(Transaction, id=transaction_id)
+
+        if transaction.status == 'completed':
+            return Response({'error': 'Cannot delete a completed transaction'}, status=status.HTTP_400_BAD_REQUEST)
+
+        transaction.delete()
+        return Response({"message": "Transaction deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+
+
 
 class TransactionHistoryPagination(PageNumberPagination):
     page_size = 10  # Adjust the page size as needed
@@ -120,3 +167,19 @@ class TransactionHistoryView(APIView):
 
         serializer = TransactionSerializer(paginated_transactions, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+class BalanceCheckView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """
+        Retrieves the account balance for the authenticated user.
+        """
+        user = request.user
+        try:
+            user_profile = UserProfile.objects.get(user=user)
+            return Response({
+                'balance': str(user_profile.balance)
+            })
+        except UserProfile.DoesNotExist:
+            return Response({'error': 'User profile not found'}, status=status.HTTP_404_NOT_FOUND)

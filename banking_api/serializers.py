@@ -71,6 +71,7 @@ class TransactionSerializer(serializers.ModelSerializer):
         sender = validated_data['sender']
         receiver = validated_data['receiver']
         amount = validated_data['amount']
+        #status = validated_data.get('status', 'pending')
 
         try:
             sender_profile = UserProfile.objects.get(user=sender)
@@ -100,7 +101,8 @@ class TransactionSerializer(serializers.ModelSerializer):
                 sender=sender,
                 receiver=receiver,
                 amount=amount,
-                status='completed'  # Marking status as 'completed'
+                status='completed'
+                #status=status  # Marking status as 'completed'
             )
             print(transaction_inst)
 
