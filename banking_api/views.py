@@ -59,26 +59,41 @@ class AccountInfoView(APIView):
             return Response({"message": f"Welcome, {request.user.username}!"})
         return Response({"message": "Unauthorized access"}, status=403)
 
+
 class TransactionView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        """
+        Handles the creation of a transaction between users and performs the necessary checks.
+        """
         serializer = TransactionSerializer(data=request.data)
-        print(serializer)
+
         if serializer.is_valid():
+            # Save the transaction first
             transaction = serializer.save()
-            logger.info(f"Transaction created successfully for {transaction.sender} to {transaction.receiver}")
-            return Response({
-                "status": "success",
-                "data": {
-                    "message": "Transaction successful",
-                    "transaction": serializer.data
-                }
-            }, status=status.HTTP_201_CREATED)
 
-        logger.warning("Transaction creation failed due to validation errors.")
+            # Try to complete the transaction and update the transaction status
+            try:
+                #transaction.complete_transaction()
+                logger.info(f"Transaction completed successfully for {transaction.sender} to {transaction.receiver}")
+                return Response({
+                    "status": "success",
+                    "data": {
+                        "message": "Transaction successful",
+                        "transaction": TransactionSerializer(transaction).data
+                    }
+                }, status=status.HTTP_201_CREATED)
+            except Exception as e:
+                logger.error(f"Transaction failed: {str(e)}")
+                return Response({
+                    "status": "failed",
+                    "message": f"Transaction failed: {str(e)}"
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Log validation errors if serializer is invalid
+        logger.warning(f"Transaction creation failed due to validation errors: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 
 class TransactionHistoryPagination(PageNumberPagination):

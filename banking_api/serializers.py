@@ -2,7 +2,9 @@ from django.contrib.auth.models import User
 from rest_framework import serializers
 from .models import Transaction, UserProfile
 from django.db import transaction
+import logging
 
+logger = logging.getLogger(__name__)
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
@@ -22,14 +24,13 @@ class RegisterSerializer(serializers.ModelSerializer):
             email=validated_data.get('email'),
             password=validated_data['password']
         )
-        UserProfile.objects.get_or_create(user=user)  # Ensure profile is created
+        UserProfile.objects.get_or_create(user=user)
         return user
 
 class TransactionSerializer(serializers.ModelSerializer):
     sender = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
     receiver = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
     amount = serializers.DecimalField(max_digits=10, decimal_places=2)
-    print("serial transactionserial ", sender, receiver, amount)
 
     class Meta:
         model = Transaction
@@ -37,40 +38,31 @@ class TransactionSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'date', 'status']
 
     def validate_amount(self, value):
-        print("serial validate_amount ", value)
         if value <= 0:
             raise serializers.ValidationError("Amount must be greater than zero.")
         return value
 
     def validate(self, attrs):
-        print("serial validate attrs ", attrs)
         sender = attrs.get('sender')
         receiver = attrs.get('receiver')
         amount = attrs.get('amount')
-        print("serial validate ", sender, receiver, amount)
-    
+
+        logger.debug(f"Validating transaction - sender: {sender}, receiver: {receiver}, amount: {amount}")
 
         if sender == receiver:
             raise serializers.ValidationError("You cannot send funds to yourself.")
 
-        # Retrieve user profiles if they exist
-        #sender_profile = getattr(sender, 'profile')
-        #receiver_profile = getattr(receiver, 'profile')
-        sender_profile = UserProfile.objects.get(user=sender)
-        receiver_profile = UserProfile.objects.get(user=receiver)
+        sender_profile = getattr(sender, 'profile', None)
+        receiver_profile = getattr(receiver, 'profile', None)
 
-        print("serial validate1 sender ", sender_profile.user.id)
-        print("serial validate1 receiver", receiver_profile.user.id)
+        logger.debug(f"Sender profile: {sender_profile}, Receiver profile: {receiver_profile}")
 
         if not sender_profile:
             raise serializers.ValidationError("The sender must have an associated profile.")
         if not receiver_profile:
             raise serializers.ValidationError("The receiver must have an associated profile.")
 
-        # Check if sender has enough balance
         if sender_profile.balance < amount:
-            print("serial validate2 sender ", sender_profile.balance)
-            print("serial validate2 receiver", receiver_profile.balance)
             raise serializers.ValidationError("You do not have enough balance to complete this transaction.")
 
         return attrs
@@ -80,13 +72,47 @@ class TransactionSerializer(serializers.ModelSerializer):
         receiver = validated_data['receiver']
         amount = validated_data['amount']
 
-        # Create and complete the transaction using the model's method
-        transaction = Transaction.objects.create(
-            sender=sender,
-            receiver=receiver,
-            amount=amount,
-            status='pending'
-        )
-        transaction.complete_transaction()  # Ensure the logic is in the model
+        try:
+            sender_profile = UserProfile.objects.get(user=sender)
+            receiver_profile = UserProfile.objects.get(user=receiver)
+        except UserProfile.DoesNotExist:
+            raise serializers.ValidationError("One or both users do not have associated profiles.")
 
-        return transaction
+        logger.debug(f"Before transaction - Sender balance: {sender_profile.balance}")
+        logger.debug(f"Before transaction - Receiver balance: {receiver_profile.balance}")
+
+        # Use a database transaction to ensure atomicity
+        with transaction.atomic():
+            # Check balance before deducting
+            if sender_profile.balance < amount:
+                raise serializers.ValidationError("Insufficient balance for the sender.")
+            
+            # Deduct balance from sender and add to receiver
+            sender_profile.balance -= amount
+            sender_profile.save()
+            receiver_profile.balance += amount
+            receiver_profile.save()
+            print(sender_profile.balance)
+            print(receiver_profile.balance)
+
+            # Create the transaction and mark it as completed
+            transaction_inst = Transaction.objects.create(
+                sender=sender,
+                receiver=receiver,
+                amount=amount,
+                status='completed'  # Marking status as 'completed'
+            )
+            print(transaction_inst)
+
+            logger.debug(f"After transaction - Sender balance: {sender_profile.balance}")
+            logger.debug(f"After transaction - Receiver balance: {receiver_profile.balance}")
+
+            # After atomic block, check if changes were applied
+            updated_sender_profile = UserProfile.objects.get(user=sender)
+            updated_receiver_profile = UserProfile.objects.get(user=receiver)
+
+            logger.debug(f"Updated Sender balance: {updated_sender_profile.balance}")
+            logger.debug(f"Updated Receiver balance: {updated_receiver_profile.balance}")
+
+
+            return transaction_inst

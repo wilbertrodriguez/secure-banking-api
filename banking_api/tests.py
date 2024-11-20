@@ -10,7 +10,6 @@ class TransactionViewTestCase(TransactionTestCase):
     def setUp(self):
         # Ensure the database is clean before each test
         print("Cleaning up the database before test...")
-        #self.clean_database()
 
         # Create users for testing
         print("Creating users for testing...")
@@ -19,17 +18,18 @@ class TransactionViewTestCase(TransactionTestCase):
 
         # Create user profiles for the users
         print("Creating user profiles...")
-        self.user_profile = UserProfile.objects.create(user=self.user, balance=100.00)
-        self.receiver_profile = UserProfile.objects.create(user=self.receiver, balance=100.00)
+        self.user_profile, created = UserProfile.objects.get_or_create(user=self.user, defaults={'balance': 100.00})
+        if not created:  # If the profile already exists, ensure balance is correct
+            self.user_profile.balance = 100.00
 
+        self.receiver_profile, created = UserProfile.objects.get_or_create(user=self.receiver, defaults={'balance': 100.00})
+        if not created:  # If the profile already exists, ensure balance is correct
+            self.receiver_profile.balance = 100.00
         self.user_profile.save()
         self.receiver_profile.save()
-
         self.user.refresh_from_db()
         self.receiver.refresh_from_db()
 
-        print(self.user_profile)
-        print(self.user)
         # Generate JWT token for the user
         print("Creating JWT token for the user...")
         refresh = RefreshToken.for_user(self.user)
@@ -94,7 +94,8 @@ class TransactionViewTestCase(TransactionTestCase):
         # Verify the response status code
         if response.status_code == status.HTTP_201_CREATED:
             print("Response status code is correct.")
-
+            self.user_profile = UserProfile.objects.get(user=self.user)
+            self.receiver_profile = UserProfile.objects.get(user=self.receiver)
             # Refresh the profiles after the transaction to ensure they are up-to-date
             self.user.refresh_from_db()
             self.receiver.refresh_from_db()  # Refresh receiver as well
