@@ -12,6 +12,7 @@ from .serializers import RegisterSerializer, TransactionSerializer
 from .models import Transaction, UserProfile
 import logging
 from rest_framework.decorators import action
+from rest_framework.decorators import permission_classes
 from django.shortcuts import get_object_or_404
 logger = logging.getLogger(__name__)
 
@@ -137,6 +138,7 @@ class TransactionView(APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    
     def delete(self, request, transaction_id):
         """
         Delete a transaction (only if not completed)

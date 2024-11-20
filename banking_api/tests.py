@@ -138,6 +138,198 @@ class TransactionViewTestCase(TransactionTestCase):
 
         print("Transaction test completed.\n\n\n")
         
+        
+    def test_transaction_creation_success(self):
+        # Test for successful transaction creation with sufficient balance
+        print("Starting the test for successful transaction creation.")
+
+        transaction_amount = 50.00
+        transaction_data = {
+            'sender': self.user.id,
+            'receiver': self.receiver.id,
+            'amount': transaction_amount,
+        }
+        print(f"Transaction data prepared: {transaction_data}")
+
+        response = self.client.post(self.url, data=transaction_data, format='json')
+
+        # Print response for debugging
+        print(f"Response status code: {response.status_code}")
+        print(f"Response content: {response.content}")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        self.user_profile.refresh_from_db()
+        self.receiver_profile.refresh_from_db()
+
+        print(f"User balance after transaction: {self.user_profile.balance}")
+        print(f"Receiver balance after transaction: {self.receiver_profile.balance}")
+
+        self.assertEqual(self.user_profile.balance, 50.00)
+        self.assertEqual(self.receiver_profile.balance, 150.00)
+
+        transaction = Transaction.objects.last()
+        print(f"Transaction details: {transaction}")
+        self.assertEqual(transaction.sender, self.user)
+        self.assertEqual(transaction.receiver, self.receiver)
+        self.assertEqual(transaction.amount, 50.00)
+        self.assertEqual(transaction.status, 'completed')
+
+        print("Successful transaction test completed.\n\n\n")
+        
+    def test_transaction_creation_insufficient_balance(self):
+        # Test for transaction creation with insufficient balance
+        print("Starting the test for transaction creation with insufficient balance.")
+
+        transaction_amount = 150.00
+        transaction_data = {
+            'sender': self.user.id,
+            'receiver': self.receiver.id,
+            'amount': transaction_amount,
+        }
+        print(f"Transaction data prepared: {transaction_data}")
+
+        response = self.client.post(self.url, data=transaction_data, format='json')
+
+        print(f"Response status code: {response.status_code}")
+        print(f"Response content: {response.content}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('non_field_errors', response.data)
+        self.assertEqual(response.data['non_field_errors'][0], "You do not have enough balance to complete this transaction.")
+
+        self.user_profile.refresh_from_db()
+        self.receiver_profile.refresh_from_db()
+
+        print(f"User balance after failed transaction: {self.user_profile.balance}")
+        print(f"Receiver balance after failed transaction: {self.receiver_profile.balance}")
+
+        self.assertEqual(self.user_profile.balance, 100.00)
+        self.assertEqual(self.receiver_profile.balance, 100.00)
+
+        print("Insufficient balance transaction test completed.\n\n\n")
+        
+    def test_transaction_creation_invalid_receiver(self):
+        # Test for transaction creation with an invalid receiver
+        print("Starting the test for transaction creation with an invalid receiver.")
+
+        transaction_amount = 50.00
+        invalid_receiver_id = 9999  # Assuming this is an invalid user ID
+        transaction_data = {
+            'sender': self.user.id,
+            'receiver': invalid_receiver_id,
+            'amount': transaction_amount,
+        }
+        print(f"Transaction data prepared: {transaction_data}")
+
+        response = self.client.post(self.url, data=transaction_data, format='json')
+
+        print(f"Response status code: {response.status_code}")
+        print(f"Response content: {response.content}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('receiver', response.data)
+        self.assertTrue(response.data['receiver'][0].startswith('Invalid pk'), 
+                    f"Unexpected error message: {response.data['receiver'][0]}")
+
+        print("Invalid receiver transaction test completed.\n\n\n")
+        
+    def test_transaction_creation_missing_fields(self):
+        # Test for transaction creation with missing fields
+        print("Starting the test for transaction creation with missing fields.")
+
+        transaction_data = {
+            'sender': self.user.id,
+            # Missing 'receiver' and 'amount' fields
+        }
+        print(f"Transaction data prepared: {transaction_data}")
+
+        response = self.client.post(self.url, data=transaction_data, format='json')
+
+        print(f"Response status code: {response.status_code}")
+        print(f"Response content: {response.content}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('receiver', response.data)
+        self.assertIn('amount', response.data)
+
+        print("Missing fields transaction test completed.")
+        
+    def test_transaction_creation(self):
+        print("Starting the test for transaction creation.")
+
+        # Check balances before the transaction
+        print(f"User balance before transaction: {self.user_profile.balance}")
+        print(f"Receiver balance before transaction: {self.receiver_profile.balance}")
+
+        # Ensure sender has enough balance for the transaction
+        transaction_amount = 50.00
+        if self.user_profile.balance < transaction_amount:
+            self.fail(f"User does not have enough balance for the transaction. Current balance: {self.user_profile.balance}")
+
+        # Prepare the transaction data
+        transaction_data = {
+            'sender': self.user.id,
+            'receiver': self.receiver.id,  # Correct field name based on the model
+            'amount': transaction_amount,
+        }
+        print(f"Transaction data prepared: {transaction_data}")
+
+        # Send the POST request to create the transaction
+        print("Sending POST request to create a transaction...")
+        response = self.client.post(self.url, 
+                                    data=transaction_data,
+                                    format='json')
+
+        # Print the response for debugging
+        print(f"Response content: {response.content}")
+
+        # Verify the response status code
+        if response.status_code == status.HTTP_201_CREATED:
+            print("Response status code is correct.")
+            self.user_profile = UserProfile.objects.get(user=self.user)
+            self.receiver_profile = UserProfile.objects.get(user=self.receiver)
+            # Refresh the profiles after the transaction to ensure they are up-to-date
+            self.user.refresh_from_db()
+            self.receiver.refresh_from_db()  # Refresh receiver as well
+
+            # Assert balances are updated correctly in case of a successful transaction
+            print(f"User balance after transaction: {self.user_profile.balance}")
+            self.assertEqual(self.user_profile.balance, 50.00)  # The user should have 50.0 left
+            print(f"Receiver balance after transaction: {self.receiver_profile.balance}")
+            self.assertEqual(self.receiver_profile.balance, 150.00)  # The receiver should have 150.0
+
+            # Verify the transaction was created correctly
+            transaction = Transaction.objects.last()
+            print(f"Transaction details: {transaction}")
+            self.assertEqual(transaction.sender, self.user)
+            self.assertEqual(transaction.receiver, self.receiver)
+            self.assertEqual(transaction.amount, 50.00)
+            self.assertEqual(transaction.status, 'completed')
+
+        else:
+            # Handle the case where the transaction fails due to insufficient funds
+            print("Transaction failed. Checking the response data...")
+            # Check if 'status' exists in the response data
+            if 'status' in response.data:
+                self.assertEqual(response.data['status'], 'failed')
+            else:
+                # Assert the presence of validation errors
+                self.assertIn('non_field_errors', response.data)
+                self.assertEqual(response.data['non_field_errors'][0], "You do not have enough balance to complete this transaction.")
+
+            # Refresh both user and receiver balances after the failed transaction attempt
+            self.user.refresh_from_db()
+            self.receiver.refresh_from_db()  # Refresh receiver as well
+
+            # Check that balances remain unchanged
+            print(f"User balance after failed transaction: {self.user_profile.balance}")
+            self.assertEqual(self.user_profile.balance, 100.00)  # The user should still have 100.0
+            print(f"Receiver balance after failed transaction: {self.receiver_profile.balance}")
+            self.assertEqual(self.receiver_profile.balance, 100.00)  # The receiver should still have 100.0
+
+        print("Transaction test completed.\n\n\n")
+        
     def test_transaction_get(self):
         print("Starting the test for GET transaction by ID.")
 
@@ -275,3 +467,195 @@ class TransactionViewTestCase(TransactionTestCase):
         self.assertEqual(transaction.is_approved, True)
 
         print("PATCH transaction test for pending transactions completed.\n\n\n")
+        
+    def test_transaction_delete(self):
+        print("\n\nStarting the test for DELETE transaction.")
+
+        # Step 1: Create a pending transaction
+        print("Creating a new transaction with status 'pending'...")
+        transaction_data = {
+            'sender': self.user.id,
+            'receiver': self.receiver.id,
+            'amount': 100.00,
+            'status': 'pending',  # This will set the transaction as pending
+        }
+
+        response = self.client.post(self.url, data=transaction_data, format='json')
+        print(f"POST response status code: {response.status_code}")
+        print(f"POST response data: {response.data}")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, 
+                        "Expected 201 Created for creating a transaction")
+
+        transaction = Transaction.objects.last()
+        transaction_id = transaction.id
+        print(f"Transaction created: ID={transaction_id}, Status={transaction.status}")
+
+        # Step 2: Attempt to delete the transaction
+        print(f"Attempting to delete transaction ID={transaction_id}...")
+        delete_url = f'{self.url}{transaction_id}/'
+        response = self.client.delete(delete_url)
+        print(f"DELETE response status code: {response.status_code}")
+        print(f"DELETE response data: {response.data if response.data else 'No Content'}")
+
+        # Assertions for DELETE request
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, 
+                        "Expected 204 No Content for deleting a pending transaction")
+
+        # Step 3: Verify the transaction is deleted
+        print(f"Verifying that transaction ID={transaction_id} is deleted...")
+        with self.assertRaises(Transaction.DoesNotExist, 
+                            msg=f"Transaction with ID={transaction_id} should not exist after deletion"):
+            Transaction.objects.get(id=transaction_id)
+
+        print("DELETE transaction test completed.\n\n\n")
+        
+    def test_transaction_delete_completed(self):
+        print("\n\nStarting the test for DELETE completed transaction.")
+
+        # Step 1: Create a completed transaction
+        print("Creating a new transaction with status 'completed'...")
+        transaction_data = {
+            'sender': self.user.id,
+            'receiver': self.receiver.id,
+            'amount': 100.00,
+            'status': 'completed',  # This will set the transaction as completed
+        }
+
+        response = self.client.post(self.url, data=transaction_data, format='json')
+        print(f"POST response status code: {response.status_code}")
+        print(f"POST response data: {response.data}")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        transaction = Transaction.objects.last()
+        transaction_id = transaction.id
+        print(f"Transaction created: ID={transaction_id}, Status={transaction.status}")
+
+        # Step 2: Attempt to delete the completed transaction
+        print(f"Attempting to delete completed transaction ID={transaction_id}...")
+        delete_url = f'{self.url}{transaction_id}/'
+        response = self.client.delete(delete_url)
+        print(f"DELETE response status code: {response.status_code}")
+        print(f"DELETE response data: {response.data if response.data else 'No Content'}")
+
+        # Assertions for DELETE request
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, 
+                        "Expected 400 Bad Request for deleting a completed transaction")
+        self.assertEqual(response.data['error'], 'Cannot delete a completed transaction', 
+                        "Expected error message: 'Cannot delete a completed transaction'")
+
+        # Step 3: Verify the transaction still exists in the database
+        print(f"Verifying that completed transaction ID={transaction_id} still exists...")
+        transaction.refresh_from_db()
+        self.assertIsNotNone(transaction, "The completed transaction should still exist in the database.")
+        print(f"Transaction ID={transaction_id} verified to exist with status: {transaction.status}")
+
+        print("DELETE completed transaction test completed.\n\n\n")
+        
+    def test_transaction_history(self):
+        """
+        Test getting the transaction history for the authenticated user
+        """
+        print("\n\nStarting the test for getting transaction history.")
+
+        # Create transactions for the user
+        Transaction.objects.create(sender=self.user, receiver=self.receiver, amount=50.00, status='completed')
+        Transaction.objects.create(sender=self.receiver, receiver=self.user, amount=30.00, status='pending')
+        Transaction.objects.create(sender=self.user, receiver=self.receiver, amount=100.00, status='completed')
+
+        # Send GET request to retrieve the user's transaction history
+        response = self.client.get('/api/transactions/history/')
+
+        # Assertions
+        print(f"GET response status code: {response.status_code}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, "Expected status code 200 for transaction history retrieval")
+        self.assertIn('results', response.data, "Response should include paginated results")
+        self.assertEqual(len(response.data['results']), 3, "There should be 3 transactions in the transaction history")
+
+        print("Transaction history test completed successfully.\n\n")
+        
+    def test_transaction_history_pagination(self):
+        """
+        Test getting the transaction history for the authenticated user with pagination.
+        """
+        print("\n\nStarting the test for getting transaction history with pagination.")
+
+        # Create 15 transactions for the user (assuming page size is 10, you can adjust this based on your pagination settings)
+        for i in range(15):
+            Transaction.objects.create(
+                sender=self.user, receiver=self.receiver, amount=Decimal('10.00'), status='completed'
+            )
+
+        # Send GET request to retrieve the user's transaction history (pagination should be applied)
+        response = self.client.get('/api/transactions/history/')
+
+        # Assertions
+        print(f"GET response status code: {response.status_code}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, "Expected status code 200 for transaction history retrieval")
+        self.assertIn('results', response.data, "Response should include 'results' for paginated data")
+
+        # Check that there are no more than 10 results on the first page (you may want to change '10' if your pagination size differs)
+        self.assertEqual(len(response.data['results']), 10, "The first page should contain no more than 10 results")
+
+        # Check if there is a 'next' field (indicating more pages)
+        self.assertIn('next', response.data, "Pagination response should include a 'next' field if there are more pages")
+        self.assertIsNotNone(response.data['next'], "There should be a 'next' link to the next page")
+
+        # Fetch the next page
+        next_page_url = response.data['next']
+        response_next_page = self.client.get(next_page_url)
+
+        # Assertions for the next page
+        print(f"GET next page response status code: {response_next_page.status_code}")
+        self.assertEqual(response_next_page.status_code, status.HTTP_200_OK, "Expected status code 200 for the next page of transaction history")
+        self.assertIn('results', response_next_page.data, "Response should include 'results' for the next page")
+
+        # Ensure the second page contains the remaining 5 transactions
+        self.assertEqual(len(response_next_page.data['results']), 5, "The second page should contain the remaining transactions")
+
+        print("Transaction history pagination test completed successfully.\n\n")
+        
+        
+    def test_balance_check_success(self):
+        """
+        Test retrieving the account balance for the authenticated user.
+        """
+        print("\n\nStarting the test for retrieving balance.")
+
+       # Ensure the user has a profile with a balance
+        self.user_profile, created = UserProfile.objects.get_or_create(user=self.user)
+        self.user_profile.balance = Decimal('150.00')
+        self.user_profile.save()  # Ensure the balance is saved
+        #self.user_profile = UserProfile.objects.get(user=self.user)
+        # Send GET request to retrieve the user's balance
+        response = self.client.get('/api/balance/')  # Adjust URL if needed
+
+        # Assertions
+        print(f"GET response status code: {response.status_code}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, "Expected status code 200 for balance retrieval")
+        self.assertIn('balance', response.data, "Response should include 'balance' field")
+        self.assertEqual(response.data['balance'], '150.00', "Balance should match the user's profile balance")
+
+        print("Balance check success test completed.\n\n")
+
+    def test_balance_check_user_profile_not_found(self):
+        """
+        Test retrieving the balance when the user profile does not exist.
+        """
+        print("\n\nStarting the test for retrieving balance when user profile is not found.")
+
+        # Ensure no profile exists for the user
+        UserProfile.objects.filter(user=self.user).delete()
+
+        # Send GET request to retrieve the user's balance
+        response = self.client.get('/api/balance/')  # Adjust URL if needed
+
+        # Assertions
+        print(f"GET response status code: {response.status_code}")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, "Expected status code 404 when user profile is not found")
+        self.assertIn('error', response.data, "Response should include 'error' field")
+        self.assertEqual(response.data['error'], 'User profile not found', "Error message should indicate user profile not found")
+
+        print("Balance check user profile not found test completed.\n\n")
+
+    
+    
