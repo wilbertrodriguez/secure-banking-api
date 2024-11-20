@@ -194,8 +194,8 @@ class TransactionViewTestCase(TransactionTestCase):
 
         print("Test completed.\n\n\n")
         
-    def test_transaction_put(self):
-        print("Starting the test for PUT transaction.")
+    def test_transaction_patch(self):
+        print("Starting the test for PATCH transaction.")
 
         # Create a transaction first
         transaction_amount = 50.00
@@ -203,7 +203,7 @@ class TransactionViewTestCase(TransactionTestCase):
             'sender': self.user.id,
             'receiver': self.receiver.id,
             'amount': transaction_amount,
-            'status': 'pending',
+            'status': 'pending',  # Status is initially 'pending'
         }
 
         # Create the transaction via POST request
@@ -215,31 +215,63 @@ class TransactionViewTestCase(TransactionTestCase):
         transaction_id = transaction.id
         print(f"Created transaction with ID: {transaction_id} and status: {transaction.status}")
 
-        # Ensure that the transaction is still 'pending' before attempting to update
-        self.assertEqual(transaction.status, 'pending')
-        
-        # Prepare new data for the transaction update (update amount)
+        # Prepare new data for the transaction update (update amount only)
         updated_data = {
-            'sender': self.user.id,
-            'receiver': self.receiver.id,
-            'amount': 75.00,
-            'status': 'pending',  # You shouldn't change the status in this case
+            'amount': 75.00,  # Only update the amount
         }
 
-        # Send PUT request to update the transaction
-        put_url = f'{self.url}{transaction_id}/'  # Adjust to your API endpoint
-        response = self.client.put(put_url, data=updated_data, format='json')
-    
+        # Send PATCH request to partially update the transaction
+        patch_url = f'{self.url}{transaction_id}/'  # Adjust to your API endpoint
+        response = self.client.patch(patch_url, data=updated_data, format='json')
+
         print("Response data:", response.data)
 
-        # Check response status code and transaction data
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['amount'], 75.00)
-        self.assertEqual(response.data['status'], 'pending')  # Ensure status stays as 'pending'
+        # Check if the status code is 400 (expected response for completed transaction)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['error'], 'Cannot update a completed transaction')
 
-        # Verify that the transaction was updated in the database
+        # Verify that the transaction was not updated in the database
         transaction.refresh_from_db()
-        self.assertEqual(transaction.amount, 75.00)
-        self.assertEqual(transaction.status, 'pending')  # Verify status remains 'pending'
+        self.assertEqual(transaction.amount, 50.00)  # Verify that amount is not updated
+        self.assertEqual(transaction.status, 'completed')  # Verify that status remains 'completed'
 
-        print("PUT transaction test completed.")
+        print("PATCH transaction test for completed transactions completed.")
+        
+    def test_transaction_patch_pending(self):
+        print("Starting the test for PATCH on a pending transaction.")
+
+        # Create a pending transaction first
+        transaction_amount = 50.00
+        transaction_data = {
+            'sender': self.user.id,
+            'receiver': self.receiver.id,
+            'amount': transaction_amount,
+            'status': 'pending',  # Status is initially 'pending'
+        }
+
+        # Create the transaction via POST request
+        response = self.client.post(self.url, data=transaction_data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Get the transaction ID from the response
+        transaction = Transaction.objects.last()
+        transaction_id = transaction.id
+        print(f"Created transaction with ID: {transaction_id} and status: {transaction.status}")
+
+        # Ensure that the transaction is 'pending' before attempting to update
+        self.assertEqual(transaction.status, 'pending')
+
+        # Now approve the transaction via the approval endpoint
+        approve_url = f'{self.url}{transaction_id}/approve/'  # Assuming 'approve/' is the URL for approval
+        approval_response = self.client.patch(approve_url, format='json')
+
+        # Verify that the transaction is approved and completed
+        self.assertEqual(approval_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(approval_response.data['status'], 'success')
+
+        # Fetch the transaction again and check that its status is now 'completed'
+        transaction.refresh_from_db()
+        self.assertEqual(transaction.status, 'completed')
+        self.assertEqual(transaction.is_approved, True)
+
+        print("PATCH transaction test for pending transactions completed.\n\n\n")

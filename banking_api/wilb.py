@@ -253,3 +253,8 @@ class TransactionViewTestCase(TransactionTestCase):
         self.assertIn('amount', response.data)
 
         print("Missing fields transaction test completed.")
+        
+        
+
+    
+    

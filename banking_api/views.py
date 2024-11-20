@@ -4,6 +4,7 @@ from rest_framework.permissions import IsAuthenticated, BasePermission
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.decorators import api_view
 from rest_framework.views import APIView
 from django.db import transaction as db_transaction
 from django.db.models import F, Q
@@ -108,25 +109,32 @@ class TransactionView(APIView):
             transactions = Transaction.objects.filter(Q(sender=request.user) | Q(receiver=request.user))
             serializer = TransactionSerializer(transactions, many=True)
             return Response(serializer.data)
-
-    def put(self, request, transaction_id):
+        
+    def patch(self, request, transaction_id):
         """
-        Update an existing transaction (only if not completed)
+        Partially update an existing transaction (only if not completed)
         """
         transaction = get_object_or_404(Transaction, id=transaction_id)
+        print(transaction.status)
 
         # Prevent updates to completed transactions
         if transaction.status == 'completed':
             return Response({'error': 'Cannot update a completed transaction'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Ensure that the status field cannot be modified unless explicitly desired
+        if 'status' in request.data:
+            return Response({'error': 'Cannot change the status of the transaction'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Serialize and update the transaction with new data
         serializer = TransactionSerializer(transaction, data=request.data, partial=True)
 
         if serializer.is_valid():
             serializer.save()
             return Response({
                 "status": "success",
-                "data": serializer.data
-            })
+                "data": serializer.data  # This includes the updated fields like amount
+            }, status=status.HTTP_200_OK)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, transaction_id):
@@ -183,3 +191,4 @@ class BalanceCheckView(APIView):
             })
         except UserProfile.DoesNotExist:
             return Response({'error': 'User profile not found'}, status=status.HTTP_404_NOT_FOUND)
+            

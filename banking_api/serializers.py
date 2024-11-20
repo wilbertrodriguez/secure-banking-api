@@ -27,6 +27,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         UserProfile.objects.get_or_create(user=user)
         return user
 
+
 class TransactionSerializer(serializers.ModelSerializer):
     sender = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
     receiver = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
@@ -71,50 +72,17 @@ class TransactionSerializer(serializers.ModelSerializer):
         sender = validated_data['sender']
         receiver = validated_data['receiver']
         amount = validated_data['amount']
-        #status = validated_data.get('status', 'pending')
 
+        # Log the initiation of the transaction
+        logger.debug(f"Creating transaction from {sender.username} to {receiver.username} for amount {amount}")
+
+        # Delegate the transaction creation to the model
         try:
-            sender_profile = UserProfile.objects.get(user=sender)
-            receiver_profile = UserProfile.objects.get(user=receiver)
-        except UserProfile.DoesNotExist:
-            raise serializers.ValidationError("One or both users do not have associated profiles.")
+            transaction_instance = Transaction.create_transaction(sender, receiver, amount)
+        except ValueError as e:
+            logger.error(f"Error creating transaction: {e}")
+            raise serializers.ValidationError(str(e))
+    
+        transaction_instance.complete_transaction()
 
-        logger.debug(f"Before transaction - Sender balance: {sender_profile.balance}")
-        logger.debug(f"Before transaction - Receiver balance: {receiver_profile.balance}")
-
-        # Use a database transaction to ensure atomicity
-        with transaction.atomic():
-            # Check balance before deducting
-            if sender_profile.balance < amount:
-                raise serializers.ValidationError("Insufficient balance for the sender.")
-            
-            # Deduct balance from sender and add to receiver
-            sender_profile.balance -= amount
-            sender_profile.save()
-            receiver_profile.balance += amount
-            receiver_profile.save()
-            print(sender_profile.balance)
-            print(receiver_profile.balance)
-
-            # Create the transaction and mark it as completed
-            transaction_inst = Transaction.objects.create(
-                sender=sender,
-                receiver=receiver,
-                amount=amount,
-                status='completed'
-                #status=status  # Marking status as 'completed'
-            )
-            print(transaction_inst)
-
-            logger.debug(f"After transaction - Sender balance: {sender_profile.balance}")
-            logger.debug(f"After transaction - Receiver balance: {receiver_profile.balance}")
-
-            # After atomic block, check if changes were applied
-            updated_sender_profile = UserProfile.objects.get(user=sender)
-            updated_receiver_profile = UserProfile.objects.get(user=receiver)
-
-            logger.debug(f"Updated Sender balance: {updated_sender_profile.balance}")
-            logger.debug(f"Updated Receiver balance: {updated_receiver_profile.balance}")
-
-
-            return transaction_inst
+        return transaction_instance
