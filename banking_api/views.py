@@ -4,31 +4,69 @@ from rest_framework.permissions import IsAuthenticated, BasePermission
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from rest_framework.response import Response
+from django.conf import settings
+from django.core.mail import send_mail
+from banking_api.utils import send_otp_email
 from rest_framework.decorators import api_view
 from rest_framework.views import APIView
 from django.db import transaction as db_transaction
 from django.db.models import F, Q
 from .serializers import RegisterSerializer, TransactionSerializer
 from .models import Transaction, UserProfile
-import logging
+import logging, random
 from rest_framework.decorators import action
 from rest_framework.decorators import permission_classes
+from django.utils.timezone import now
 from django.shortcuts import get_object_or_404
+from datetime import datetime, timedelta
+from .utils import generate_otp, send_otp_email, store_otp
 logger = logging.getLogger(__name__)
+from django.contrib.auth import authenticate
+from rest_framework_simplejwt.tokens import RefreshToken
+
 
 class RegisterView(APIView):
     def post(self, request):
         """
-        Registers a new user, adds them to the 'User' group, and returns a success message.
+        Registers a new user, adds them to the 'User' group, generates and sends an OTP, and returns a success message.
         """
+        email = request.data.get("email")
+        
+        # Check if a user with the provided email already exists
+        if User.objects.filter(email=email).exists():
+            logger.warning(f"User with email {email} already exists.")
+            return Response({"error": "A user with this email already exists."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate and create user if email doesn't exist
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
-            user = serializer.save()
-            user_group, created = Group.objects.get_or_create(name='User')
-            user.groups.add(user_group)
-            logger.info(f"User {user.username} registered and added to 'User' group.")
-            return Response({"message": "User registered successfully"}, status=status.HTTP_201_CREATED)
+            try:
+                # Save the user
+                user = serializer.save()
+
+                # Add user to the 'User' group
+                user_group, created = Group.objects.get_or_create(name='User')
+                user.groups.add(user_group)
+                
+                # Generate OTP, send it via email, and store it in the user's profile
+                otp = generate_otp()
+                send_otp_email(user.email, otp)
+                store_otp(user, otp)
+                
+                # Log successful registration
+                logger.info(f"User {user.username} registered and added to 'User' group.")
+                
+                # Return the response with a success message and inform the user to verify OTP
+                return Response({
+                    "message": "User registered successfully. Check your email for the OTP to verify your account.",
+                    "user": {"username": user.username, "email": user.email}
+                }, status=status.HTTP_201_CREATED)
+            
+            except Exception as e:
+                logger.error(f"Error during user registration: {str(e)}")
+                return Response({"error": "An unexpected error occurred."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
+        # Log validation errors
         logger.warning("User registration failed due to validation errors.")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -193,4 +231,126 @@ class BalanceCheckView(APIView):
             })
         except UserProfile.DoesNotExist:
             return Response({'error': 'User profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+class VerifyOTPView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Verifies the OTP entered by the user.
+        """
+        otp = request.data.get("otp")
+        user = request.user  # Authenticated via JWT or session
+
+        if not otp:
+            logger.warning(f"OTP missing for user {user.username}")
+            return Response({"error": "OTP is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Retrieve the user's profile
+        try:
+            profile = user.profile  # Assuming OneToOneField with related_name='profile'
+        except AttributeError:
+            logger.error(f"Profile not found for user {user.username}")
+            return Response({"error": "Profile not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+
+        # Validate the OTP
+        if profile.otp == otp:
+            if now() < profile.otp_expiration:
+                # OTP is valid
+                logger.info(f"OTP verified successfully for user {user.username}")
+                profile.otp = None  # Clear OTP
+                profile.otp_expiration = None  # Clear expiration
+                profile.save()
+                return Response({"message": "OTP verified successfully!"}, status=status.HTTP_200_OK)
+            else:
+                logger.warning(f"OTP expired for user {user.username}")
+                return Response({"error": "OTP has expired."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            logger.info(f"Invalid OTP entered for user {user.username}")
+            return Response({"error": "Invalid OTP."}, status=status.HTTP_400_BAD_REQUEST)
+        
+
+class LoginView(APIView):
+    def post(self, request):
+        """
+        Handles login with multi-factor authentication (MFA).
+        If MFA is enabled, it sends an OTP for verification.
+        """
+        email = request.data.get('email')
+        password = request.data.get('password')
+        
+        # Authenticate user
+        user = authenticate(email=email, password=password)
+        
+        if not user:
+            logger.warning(f"Login failed for email: {email}")
+            return Response({"error": "Invalid email or password."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if MFA is enabled (you can add this to your user profile)
+        try:
+            user_profile = UserProfile.objects.get(user=user)
+            
+            if user_profile.mfa_enabled:
+                # Generate OTP, send it, and store it in the user's profile
+                otp = generate_otp()
+                send_otp_email(user.email, otp)
+                store_otp(user, otp)
+                
+                return Response({
+                    "message": "Login successful. Check your email for the OTP to complete the login process.",
+                    "mfa_required": True,
+                }, status=status.HTTP_200_OK)
+            
+            # If no MFA is required, proceed to generate a token
+            token = RefreshToken.for_user(user)
+            return Response({
+                "message": "Login successful.",
+                "access_token": str(token.access_token),
+                "refresh_token": str(token),
+            }, status=status.HTTP_200_OK)
+        
+        except UserProfile.DoesNotExist:
+            return Response({"error": "User profile not found."}, status=status.HTTP_404_NOT_FOUND)
+
+
+class VerifyLoginOTPView(APIView):
+    def post(self, request):
+        """
+        Verifies OTP for completing the login process.
+        """
+        otp = request.data.get("otp")
+        user = request.user  # Authenticated via JWT or session
+
+        if not otp:
+            logger.warning(f"OTP missing for user {user.username}")
+            return Response({"error": "OTP is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        profile = getattr(user, 'profile', None)
+
+        if not profile:
+            logger.error(f"Profile not found for user {user.username}")
+            return Response({"error": "Profile not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if profile.otp == otp:
+            if now() < profile.otp_expiration:
+                # OTP valid, login successful
+                logger.info(f"OTP verified successfully for user {user.username}")
+                profile.otp = None  # Clear OTP
+                profile.otp_expiration = None  # Clear expiration
+                profile.save()
+
+                # Now issue access and refresh tokens
+                token = RefreshToken.for_user(user)
+                return Response({
+                    "message": "OTP verified successfully. Login complete.",
+                    "access_token": str(token.access_token),
+                    "refresh_token": str(token),
+                }, status=status.HTTP_200_OK)
+            else:
+                logger.warning(f"OTP expired for user {user.username}")
+                return Response({"error": "OTP has expired."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            logger.info(f"Invalid OTP entered for user {user.username}")
+            return Response({"error": "Invalid OTP."}, status=status.HTTP_400_BAD_REQUEST)
             

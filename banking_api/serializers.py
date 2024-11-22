@@ -2,28 +2,41 @@ from django.contrib.auth.models import User
 from rest_framework import serializers
 from .models import Transaction, UserProfile
 from django.db import transaction
+from django.core.exceptions import ValidationError
+from django.core.validators import MinLengthValidator
 import logging
 
 logger = logging.getLogger(__name__)
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True, validators=[MinLengthValidator(8)])  # Enforcing a minimum length for password
 
     class Meta:
         model = User
         fields = ['username', 'email', 'password']
 
     def validate_email(self, value):
+        # Check if the email is already in use
         if User.objects.filter(email=value).exists():
             raise serializers.ValidationError("A user with this email already exists.")
         return value
 
+    def validate_password(self, value):
+        # Add more password validations (e.g., password strength)
+        if not any(char.isdigit() for char in value):
+            raise serializers.ValidationError("Password must contain at least one digit.")
+        if not any(char.isalpha() for char in value):
+            raise serializers.ValidationError("Password must contain at least one letter.")
+        return value
+
     def create(self, validated_data):
+        # Create user with hashed password
         user = User.objects.create_user(
             username=validated_data['username'],
             email=validated_data.get('email'),
             password=validated_data['password']
         )
+        # Create UserProfile or ensure it exists
         UserProfile.objects.get_or_create(user=user)
         return user
 

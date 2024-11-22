@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import RegisterView, AdminOnlyView, AccountInfoView, TransactionView, TransactionHistoryView, BalanceCheckView
+from .views import RegisterView, AdminOnlyView, AccountInfoView, TransactionView, TransactionHistoryView, BalanceCheckView, VerifyOTPView
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
@@ -15,4 +15,5 @@ urlpatterns = [
     path('transactions/history/', TransactionHistoryView.as_view(), name='transaction-history'),
     path('transactions/<int:transaction_id>/', TransactionView.as_view(), name='transaction_detail'),
     path('balance/', BalanceCheckView.as_view(), name='balance_check'),
+    path('verify-otp/', VerifyOTPView.as_view(), name='verify_otp'),
 ]
