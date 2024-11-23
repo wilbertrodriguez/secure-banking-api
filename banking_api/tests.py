@@ -46,6 +46,8 @@ class TransactionViewTestCase(TransactionTestCase):
         # Set the registration URL
         self.register_url = '/api/register/'  # Adjust the URL as per your app
         self.verify_otp_url = '/api/verify-otp/'  # Adjust the URL as per your app
+        self.login_url = '/api/login/'
+        self.verify_login_url = '/api/verify-login'
 
         # Mocking the email sending function to avoid actually sending emails
         self.patcher = patch('banking_api.utils.send_mail')
@@ -67,6 +69,7 @@ class TransactionViewTestCase(TransactionTestCase):
         """
         UserProfile.objects.all().delete()
         User.objects.all().delete()
+
 
     @patch('banking_api.utils.send_mail')  # Mocking send_mail
     def test_register_user_and_send_otp(self, mock_send_email):
@@ -189,3 +192,75 @@ class TransactionViewTestCase(TransactionTestCase):
         # Assert invalid OTP response
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data['error'], 'Invalid OTP.')
+
+
+    @patch('banking_api.utils.send_mail')  # Mocking send_mail to avoid sending real emails
+    def test_login_with_mfa_and_verify_otp(self, mock_send_email):
+        """
+        Test that an existing user can log in, receive an OTP, and then verify the OTP to complete login.
+        """
+        # User registration data
+        registration_data = {
+            'username': 'testtommy',
+            'email': 'testtommy@example.com',
+            'password': 'securepassword123'
+        }
+
+        # Create the user
+        response = self.client.post(self.register_url, registration_data, format='json')
+        print("Registration Response content:", response.data)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Fetch the created user from the database
+        user = User.objects.get(username=registration_data['username'])
+        user_profile = user.profile
+        user_profile.mfa_enabled = True  # Simulate MFA being enabled for the user
+        user_profile.save()
+
+        # Now, attempt to log in (this triggers MFA if enabled)
+        login_data = {
+            'email': user.email,
+            'password': registration_data['password']
+        }
+        print("Login data:", login_data)
+        response = self.client.post(self.login_url, login_data, format='json')
+        print("Login Response content:", response.data)
+
+        # Assert that login is unsuccessful but MFA is required
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['mfa_required'])
+        self.assertIn('Check your email for the OTP', response.data['message'])
+
+        # Check if send_mail was called to send OTP to the user's email
+        mock_send_email.assert_any_call(
+            'Your OTP Code',
+            mock.ANY,  # The exact OTP content will vary; you could refine this with regex if needed
+            'webmaster@localhost',  # Replace with your app's sender email
+            [user.email]
+        )
+
+        # Simulate the user receiving the OTP from their email
+        otp = user_profile.otp  # This should be generated and stored in the user's profile
+        print("Generated OTP:", otp)
+        
+        # Now authenticate the new user
+        refresh = RefreshToken.for_user(user_profile)
+        access_token = str(refresh.access_token)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_token}')
+
+        # Now verify the OTP for login
+        otp_data = {'otp': otp}
+        otp_response = self.client.post(self.verify_login_url, otp_data, format='json')
+        print("OTP Response Content:", otp_response.data)
+
+        # Assert OTP verification is successful
+        self.assertEqual(otp_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(otp_response.data['message'], 'OTP verified successfully!')
+
+        # Assert that the OTP is cleared after successful verification
+        user_profile.refresh_from_db()  # Fetch the latest data from the DB
+        self.assertIsNone(user_profile.otp)  # Ensure OTP is cleared
+        self.assertIsNone(user_profile.otp_expiration)  # Ensure expiration is cleared
+
+        # Now the user should be fully logged in and can proceed to perform actions
+        print("Logged in successfully. User is authenticated.")

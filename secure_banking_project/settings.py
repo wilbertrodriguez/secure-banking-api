@@ -80,6 +80,11 @@ TEMPLATES = [
     },
 ]
 
+AUTHENTICATION_BACKENDS = [
+    'banking_api.auth_backend.EmailBackend',  # Add your custom backend here
+    'django.contrib.auth.backends.ModelBackend',  # Default backend (optional)
+]
+
 WSGI_APPLICATION = 'secure_banking_project.wsgi.application'
 
 LOGGING = {

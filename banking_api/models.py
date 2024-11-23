@@ -14,6 +14,7 @@ class UserProfile(models.Model):
     balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     otp = models.CharField(max_length=6, blank=True, null=True)  # Store OTP
     otp_expiration = models.DateTimeField(null=True, blank=True)  # Store expiration time
+    mfa_enabled = models.BooleanField(default=False)  # This field enables MFA
 
     def __str__(self):
         return f"{self.user.username}'s profile"

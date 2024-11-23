@@ -23,6 +23,7 @@ from .utils import generate_otp, send_otp_email, store_otp
 logger = logging.getLogger(__name__)
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
+from django.utils import timezone
 
 
 class RegisterView(APIView):
@@ -279,30 +280,37 @@ class LoginView(APIView):
         """
         email = request.data.get('email')
         password = request.data.get('password')
-        
-        # Authenticate user
-        user = authenticate(email=email, password=password)
-        
+
+        if not email or not password:
+            return Response({"error": "Email and password are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Authenticate user using email
+        try:
+            user = authenticate(request, email=email, password=password)
+        except Exception as e:
+            return Response({"error": "Authentication failed."}, status=status.HTTP_400_BAD_REQUEST)
+
         if not user:
-            logger.warning(f"Login failed for email: {email}")
             return Response({"error": "Invalid email or password."}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Check if MFA is enabled (you can add this to your user profile)
+        # Check if MFA is enabled
         try:
-            user_profile = UserProfile.objects.get(user=user)
-            
+            user_profile = user.profile
             if user_profile.mfa_enabled:
-                # Generate OTP, send it, and store it in the user's profile
-                otp = generate_otp()
-                send_otp_email(user.email, otp)
-                store_otp(user, otp)
+                if user_profile.otp and now() < user_profile.otp_expiration:
+                    # OTP already exists and is valid, send it again
+                    send_otp_email(user.email, user_profile.otp)  # Send the existing OTP
+                else:
+                    otp = generate_otp()  # Generate new OTP if none exists or expired
+                    send_otp_email(user.email, otp)  # Send new OTP
+                    store_otp(user, otp)  # Store new OTP in the profile
                 
                 return Response({
                     "message": "Login successful. Check your email for the OTP to complete the login process.",
                     "mfa_required": True,
                 }, status=status.HTTP_200_OK)
             
-            # If no MFA is required, proceed to generate a token
+            # If no MFA is required, generate token
             token = RefreshToken.for_user(user)
             return Response({
                 "message": "Login successful.",
@@ -312,7 +320,6 @@ class LoginView(APIView):
         
         except UserProfile.DoesNotExist:
             return Response({"error": "User profile not found."}, status=status.HTTP_404_NOT_FOUND)
-
 
 class VerifyLoginOTPView(APIView):
     def post(self, request):
@@ -326,24 +333,25 @@ class VerifyLoginOTPView(APIView):
             logger.warning(f"OTP missing for user {user.username}")
             return Response({"error": "OTP is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        profile = getattr(user, 'profile', None)
-
-        if not profile:
+        # Retrieve the user profile
+        try:
+            profile = user.profile  # Ensure profile exists
+        except UserProfile.DoesNotExist:
             logger.error(f"Profile not found for user {user.username}")
             return Response({"error": "Profile not found."}, status=status.HTTP_400_BAD_REQUEST)
-
+        # Check if the OTP matches and if it's not expired
         if profile.otp == otp:
-            if now() < profile.otp_expiration:
-                # OTP valid, login successful
-                logger.info(f"OTP verified successfully for user {user.username}")
-                profile.otp = None  # Clear OTP
+            if timezone.now() < profile.otp_expiration:
+                # OTP valid, proceed to login
+                profile.otp = None  # Clear OTP after successful verification
                 profile.otp_expiration = None  # Clear expiration
                 profile.save()
 
-                # Now issue access and refresh tokens
+                # Generate new JWT token
                 token = RefreshToken.for_user(user)
+                logger.info(f"User {user.username} successfully verified OTP and logged in.")
                 return Response({
-                    "message": "OTP verified successfully. Login complete.",
+                    "message": "OTP verified successfully!",
                     "access_token": str(token.access_token),
                     "refresh_token": str(token),
                 }, status=status.HTTP_200_OK)
