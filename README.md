@@ -1,15 +1,15 @@
 # Secure Banking Transactions API
 
-This project is a secure REST API for managing banking transactions. It supports user authentication, role-based access control, secure transaction management, and multi-factor authentication (MFA). The API is built using Django REST Framework and integrates best practices in web security.
+A secure REST API designed for managing banking transactions, featuring user authentication, role-based access control, secure transaction management, and multi-factor authentication (MFA). Built using Django REST Framework, the API follows industry-standard best practices to ensure secure and efficient operations.
 
 ## Features
 
 - **User Authentication** (Sign-up, Login)
-- **Multi-Factor Authentication** (MFA)
+- **Multi-Factor Authentication (MFA)**
 - **Role-Based Access Control** (Admin and User roles)
-- **Secure Transactions Management** (Fund Transfers, Transaction History)
-- **Account Balance Check**
-- Security measures against **SQL Injection**, **CSRF**, and **XSS**
+- **Transaction Management** (Fund Transfers, Transaction History)
+- **Account Balance Verification**
+- Protection against **SQL Injection**, **CSRF**, and **XSS**
 
 ## Tech Stack
 
@@ -21,72 +21,71 @@ This project is a secure REST API for managing banking transactions. It supports
 
 ## Setup Instructions
 
-Follow these steps to set up the project locally.
-
-1. Clone the repository  
+1. Clone the repository:
    `git clone https://github.com/yourusername/secure-banking-api.git`
 
-2. Create a Virtual Environment  
-   `python -m venv venv`
+2. Navigate to the project directory:
+   `cd secure-banking-api`
 
-3. Activate the Virtual Environment  
-   For Windows:  
-   `venv\Scripts\activate`  
-   For macOS/Linux:  
-   `source venv/bin/activate`
+3. Create and activate a virtual environment:
+   - For Windows:
+     `python -m venv venv`
+     `venv\Scripts\activate`
+   - For macOS/Linux:
+     `python3 -m venv venv`
+     `source venv/bin/activate`
 
-4. Install Dependencies  
+4. Install dependencies:
    `pip install -r requirements.txt`
 
-5. Apply Migrations  
+5. Apply migrations to set up the database:
    `python manage.py migrate`
 
-6. Create a Superuser  
+6. Create a superuser for accessing the Django admin interface:
    `python manage.py createsuperuser`
 
-## Running the Project Locally
+7. Run the development server:
+   `python manage.py runserver`
 
-To run the development server locally, use the following command:
-
-`python manage.py runserver`
-
-Visit `http://127.0.0.1:8000` in your browser to interact with the API.
+Once the server is running, navigate to `http://127.0.0.1:8000` in a web browser to interact with the API.
 
 ## Completed Phases
 
-### Phase 1: Project Setup
+### Phase 1: Project Setup and Initial Configuration
 
-In this phase, we set up the project repository and initialized the basic structure:
+In the initial phase, the foundation for the project was established. Key tasks included:
 
-- Created a GitHub repository for version control.
-- Set up Django REST Framework and PostgreSQL for database management.
-- Installed necessary dependencies and configured the environment.
+- **Repository Setup**: Created a new GitHub repository for version control and collaboration.
+- **Django Configuration**: Set up Django with REST framework and configured PostgreSQL as the database.
+- **Environment Setup**: Installed and configured necessary dependencies, including Django REST Framework, JWT for authentication, and bcrypt for password hashing.
+- **Initial Migrations**: Created the initial database structure and applied migrations to set up the models for users and transactions.
 
-### Phase 2: User Authentication
+### Phase 2: User Authentication and Multi-Factor Authentication (MFA)
 
-We implemented basic user authentication with JWT for session management:
+This phase involved the development of secure user authentication, along with multi-factor authentication for enhanced security:
 
-- **User Registration**: Implemented registration endpoint with hashed passwords using `create_user`.
-- **Login**: Developed a login endpoint to generate JWT tokens upon successful authentication.
-- **Multi-Factor Authentication (MFA)**: Integrated MFA for extra security during login.
+- **User Registration**: Implemented secure registration, where users are required to input a unique username, email, and password. Passwords are hashed using bcrypt for security.
+- **Login Endpoint**: Developed a login API endpoint that allows users to authenticate using their credentials. Upon successful login, the system issues a JWT for subsequent requests.
+- **Multi-Factor Authentication (MFA)**: Integrated MFA to enhance security, requiring a secondary verification step (such as an SMS or email code) when users log in, especially when logging in from a new device.
+- **Token Management**: Designed a secure JWT-based token system that handles user sessions. The tokens are used to authorize users for protected routes and expire after a set period to enhance security.
 
 ### Phase 3: Role-Based Access Control (RBAC)
 
-This phase focused on defining user roles and restricting access to certain API endpoints based on those roles:
+Role-based access control (RBAC) was implemented to ensure that users have access to resources based on their role. The system differentiates between regular users and admins:
 
-- **User Roles**: Defined roles (admin, user).
-- **Access Control**: Implemented middleware or decorators to enforce role-based permissions on specific endpoints.
+- **User Roles**: Two primary roles were defined: `admin` and `user`. Admins have access to manage all users and transactions, while regular users can only view and manage their own transactions.
+- **Access Control**: Implemented decorators and middleware to ensure that only authorized users can access certain endpoints. Admins can access endpoints for managing users and viewing all transactions, while users can only interact with their own data.
 
-## API Documentation
+### Phase 4: Transaction Management
 
-For testing and exploring the API endpoints, you can use [Postman](https://www.postman.com/) or [Swagger](https://swagger.io/).
+The core functionality of the API—managing banking transactions—was built in this phase. Features include:
 
-## Security Considerations
-
-- Ensure **HTTPS** is used in production environments.
-- Use **JWTs** for secure token-based authentication.
-- Protect against **CSRF** attacks by enabling CSRF protection.
+- **Transaction Creation**: Users can initiate transactions by transferring funds from one account to another. The transaction details (amount, sender, receiver, etc.) are securely processed and stored.
+- **Transaction History**: Each user can view a history of their transactions, providing them with transparency and control over their financial activities.
+- **Account Balance Verification**: Before initiating a transaction, users can verify their current balance to ensure they have sufficient funds. The balance is updated automatically after each successful transaction.
+- **Transaction Limits**: To prevent fraudulent activities, transaction limits were implemented, ensuring that no user can transfer an amount beyond their allowed limit.
+- **Input Validation**: All incoming transaction data undergoes validation to prevent common security threats such as SQL injection, Cross-Site Scripting (XSS), and other malicious inputs.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.

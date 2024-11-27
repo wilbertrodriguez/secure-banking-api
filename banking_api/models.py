@@ -4,10 +4,19 @@ import logging
 from django.db.models import F
 from decimal import Decimal
 from django.db import transaction
+from django.contrib.auth.hashers import make_password, check_password
+from django.core.exceptions import ValidationError
+from cryptography.fernet import Fernet
+from banking_api.encryption import encrypt_data, decrypt_data
+import json
 
 logger = logging.getLogger(__name__)
 
 User = get_user_model()
+
+key = Fernet.generate_key()  # This key must be securely stored and reused
+cipher = Fernet(key)
+
 
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
@@ -15,9 +24,24 @@ class UserProfile(models.Model):
     otp = models.CharField(max_length=6, blank=True, null=True)  # Store OTP
     otp_expiration = models.DateTimeField(null=True, blank=True)  # Store expiration time
     mfa_enabled = models.BooleanField(default=False)  # This field enables MFA
+    last_login_time = models.DateTimeField(null=True, blank=True)
+    failed_login_attempts = models.IntegerField(default=0)
+    security_questions = models.JSONField(default=dict)  # Store answers as a JSON object
+    is_locked = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.user.username}'s profile"
+    
+    def set_otp(self, raw_otp):
+        self.otp = make_password(raw_otp)
+        self.save()
+
+    def verify_otp(self, raw_otp):
+        return check_password(raw_otp, self.otp)
+    
+    def clean(self):
+        if self.balance < 0:
+            raise ValidationError("Balance cannot be negative.")
 
     def save(self, *args, **kwargs):
         # Log when balance is updated
@@ -26,6 +50,30 @@ class UserProfile(models.Model):
         else:
             logger.info(f"Creating profile for user {self.user.username} with initial balance {self.balance}")
         super().save(*args, **kwargs)
+        
+    def reset_failed_attempts(self):
+        self.failed_login_attempts = 0
+        self.save()
+
+    def increment_failed_attempts(self):
+        self.failed_login_attempts += 1
+        self.save()
+        
+    def set_security_questions(self, questions):
+        encrypted = encrypt_data(json.dumps(questions))
+        self.security_questions = encrypted
+        self.save()
+
+    def get_security_questions(self):
+        decrypted = decrypt_data(self.security_questions)
+        return json.loads(decrypted)
+    
+    def check_lock_status(self):
+        if self.failed_login_attempts >= 5:
+            self.is_locked = True
+            self.save()
+        
+    
 
 
 class Transaction(models.Model):

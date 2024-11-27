@@ -17,5 +17,5 @@ urlpatterns = [
     path('balance/', BalanceCheckView.as_view(), name='balance_check'),
     path('verify-otp/', VerifyOTPView.as_view(), name='verify_otp'),
     path('login/', LoginView.as_view(), name='login_mfa'),
-    path('verify-login', VerifyLoginOTPView.as_view(), name='verify_login')
+    path('verify-login/', VerifyLoginOTPView.as_view(), name='verify_login')
 ]

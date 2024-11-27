@@ -8,10 +8,6 @@ from django.db import connection
 from decimal import Decimal
 from unittest.mock import patch
 from unittest import mock
-import ssl
-from django.test import override_settings
-
-ssl._create_default_https_context = ssl._create_unverified_context
 
 class TransactionViewTestCase(TransactionTestCase):
     def setUp(self):
@@ -51,7 +47,7 @@ class TransactionViewTestCase(TransactionTestCase):
         self.register_url = '/api/register/'  # Adjust the URL as per your app
         self.verify_otp_url = '/api/verify-otp/'  # Adjust the URL as per your app
         self.login_url = '/api/login/'
-        self.verify_login_url = '/api/verify-login/'
+        self.verify_login_url = '/api/verify-login'
 
         # Mocking the email sending function to avoid actually sending emails
         self.patcher = patch('banking_api.utils.send_mail')
@@ -74,27 +70,22 @@ class TransactionViewTestCase(TransactionTestCase):
         UserProfile.objects.all().delete()
         User.objects.all().delete()
 
-    #@override_settings(EMAIL_BACKEND='django.core.mail.backends.dummy.EmailBackend')
+
     @patch('banking_api.utils.send_mail')  # Mocking send_mail
     def test_register_user_and_send_otp(self, mock_send_email):
         """
         Test that a new user can register, receive an OTP, and then create a transaction.
         """
         # User registration data
-        print(mock_send_email.call_count)
         registration_data = {
-            'username' : 'new_testuser',
-            'password' : 'securepassword123',
-            'email' : 'new_testuser@example.com'
+            'username': 'new_testuser',
+            'email': 'new_testuser@example.com',
+            'password': 'securepassword123'
         }
 
         # Send the registration request
-        print("truaso Sending registration request...")
-        response = self.client.post(self.register_url, registration_data, format='json', follow=True)
-        print(self.register_url)
-        print(response)
-        print(response.content)
-        print(mock_send_email.call_count)
+        print("Sending registration request...")
+        response = self.client.post(self.register_url, registration_data, format='json')
 
         # Print response content for debugging
         print("Response content:", response.data)
@@ -216,11 +207,8 @@ class TransactionViewTestCase(TransactionTestCase):
         }
 
         # Create the user
-        response = self.client.post(self.register_url, registration_data, format='json',follow=True)
-        print(response)
-        print(response.data)
+        response = self.client.post(self.register_url, registration_data, format='json')
         print("Registration Response content:", response.data)
-        print(response.status_code)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         # Fetch the created user from the database
@@ -237,7 +225,6 @@ class TransactionViewTestCase(TransactionTestCase):
         print("Login data:", login_data)
         response = self.client.post(self.login_url, login_data, format='json')
         print("Login Response content:", response.data)
-        
 
         # Assert that login is unsuccessful but MFA is required
         self.assertEqual(response.status_code, status.HTTP_200_OK)

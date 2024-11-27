@@ -24,9 +24,18 @@ logger = logging.getLogger(__name__)
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
+from django.http import JsonResponse
+from django_ratelimit.decorators import ratelimit
+from ratelimit import limits, sleep_and_retry
+from django.views.decorators.cache import never_cache
+from rest_framework.permissions import AllowAny
 
+# Define the rate limit for the views
+CALLS = 5  # Max 5 requests
+TIME_PERIOD = 60  # per minute
 
 class RegisterView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         """
         Registers a new user, adds them to the 'User' group, generates and sends an OTP, and returns a success message.
@@ -53,6 +62,11 @@ class RegisterView(APIView):
                 otp = generate_otp()
                 send_otp_email(user.email, otp)
                 store_otp(user, otp)
+                
+                # Set security questions
+                security_questions = request.data.get("security_questions")
+                if security_questions:
+                    user.set_security_questions(security_questions)
                 
                 # Log successful registration
                 logger.info(f"User {user.username} registered and added to 'User' group.")
@@ -100,14 +114,29 @@ class AccountInfoView(APIView):
         if request.user.groups.filter(name='User').exists():
             return Response({"message": f"Welcome, {request.user.username}!"})
         return Response({"message": "Unauthorized access"}, status=403)
+    
+class TransactionPagination(PageNumberPagination):
+    page_size = 10  # Adjust the page size as needed
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
 
 class TransactionView(APIView):
     permission_classes = [IsAuthenticated]
+    pagination_class = TransactionPagination
 
+    #@ratelimit(key='ip', rate='5/m', method='ALL')
+    #@never_cache
     def post(self, request):
         """
         Handles the creation of a transaction between users and performs the necessary checks.
         """
+        if getattr(request, 'limited', False):
+            return Response({
+                "status": "failed",
+                "message": "Too many requests. Please try again later."
+            }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
         serializer = TransactionSerializer(data=request.data)
 
         if serializer.is_valid():
@@ -136,20 +165,35 @@ class TransactionView(APIView):
         logger.warning(f"Transaction creation failed due to validation errors: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    #@ratelimit(key='ip', rate='5/m', method='ALL')
+    #@never_cache
     def get(self, request, transaction_id=None):
         """
-        Retrieve a specific transaction by ID
+        Retrieve a specific transaction by ID, or return a list of transactions
+        with optional pagination.
         """
         if transaction_id:
+            # Retrieve a specific transaction by ID
             transaction = get_object_or_404(Transaction, id=transaction_id)
-            return Response({
-                'transaction': TransactionSerializer(transaction).data
-            })
+            serializer = TransactionSerializer(transaction)
+            return Response({'transaction': serializer.data})
+        
         else:
-            transactions = Transaction.objects.filter(Q(sender=request.user) | Q(receiver=request.user))
+            # Add pagination and return list of transactions
+            transactions = Transaction.objects.all()
+            paginator = PageNumberPagination()
+            page = paginator.paginate_queryset(transactions, request)
+            
+            if page is not None:
+                serializer = TransactionSerializer(page, many=True)
+                return paginator.get_paginated_response(serializer.data)
+            
+            # Return all transactions if no pagination
             serializer = TransactionSerializer(transactions, many=True)
             return Response(serializer.data)
         
+    #@ratelimit(key='ip', rate='5/m', method='ALL')
+    #@never_cache
     def patch(self, request, transaction_id):
         """
         Partially update an existing transaction (only if not completed)
@@ -177,7 +221,8 @@ class TransactionView(APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    
+    #@ratelimit(key='ip', rate='5/m', method='ALL')
+    #@never_cache
     def delete(self, request, transaction_id):
         """
         Delete a transaction (only if not completed)
@@ -190,12 +235,6 @@ class TransactionView(APIView):
         transaction.delete()
         return Response({"message": "Transaction deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
-
-
-class TransactionHistoryPagination(PageNumberPagination):
-    page_size = 10  # Adjust the page size as needed
-    page_size_query_param = 'page_size'
-    max_page_size = 100
 
 
 class TransactionHistoryView(APIView):
@@ -211,7 +250,7 @@ class TransactionHistoryView(APIView):
         ).select_related('sender', 'receiver').order_by('-date')
 
         # Apply pagination
-        paginator = TransactionHistoryPagination()
+        paginator = TransactionPagination()
         paginated_transactions = paginator.paginate_queryset(transactions, request)
 
         serializer = TransactionSerializer(paginated_transactions, many=True)
@@ -236,6 +275,8 @@ class BalanceCheckView(APIView):
 class VerifyOTPView(APIView):
     permission_classes = [IsAuthenticated]
 
+    #@ratelimit(key='ip', rate='5/m', method='ALL')
+    #@never_cache
     def post(self, request):
         """
         Verifies the OTP entered by the user.
@@ -273,11 +314,15 @@ class VerifyOTPView(APIView):
         
 
 class LoginView(APIView):
+    
+    #@ratelimit(key='ip', rate='5/m', method='ALL')
+    #@never_cache
     def post(self, request):
         """
         Handles login with multi-factor authentication (MFA).
         If MFA is enabled, it sends an OTP for verification.
         """
+        print('ttt')
         email = request.data.get('email')
         password = request.data.get('password')
 
@@ -322,6 +367,8 @@ class LoginView(APIView):
             return Response({"error": "User profile not found."}, status=status.HTTP_404_NOT_FOUND)
 
 class VerifyLoginOTPView(APIView):
+    #@ratelimit(key='ip', rate='5/m', method='ALL')
+    #@never_cache
     def post(self, request):
         """
         Verifies OTP for completing the login process.
@@ -361,4 +408,13 @@ class VerifyLoginOTPView(APIView):
         else:
             logger.info(f"Invalid OTP entered for user {user.username}")
             return Response({"error": "Invalid OTP."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        
+#@ratelimit(key='ip', rate='5/m', method='ALL')
+def secure_transaction_view(request):
+    if getattr(request, 'limited', False):
+        return JsonResponse({'error': 'Too many requests'}, status=429)
+        
+    # Your secure banking logic goes here (e.g., processing the transaction)
+    return JsonResponse({'message': 'Transaction successful'})
             

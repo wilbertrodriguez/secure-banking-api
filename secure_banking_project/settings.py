@@ -14,6 +14,7 @@ from datetime import timedelta
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+from decouple import config
 
 # Load environment variables from a .env file (if you have one)
 load_dotenv()
@@ -26,12 +27,19 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
+# Fetch the encryption key from environment variables
+SECURITY_KEY = os.environ.get("SECURITY_KEY")
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-6!blz&9#07=x%pkok22u2vfi^5*ljqg!(@_!4!z9cvw-4ajk+h')
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
 
-ALLOWED_HOSTS = []
+# SECURITY WARNING: don't run with debug turned on in production!
+
+DEBUG = config('DEBUG', default=False, cast=bool)
+DATABASE_URL = config('DATABASE_URL')
+SECURITY_KEY = config('SECURITY_KEY')
+
+if not SECURITY_KEY:
+    raise ValueError("SECURITY_KEY environment variable is not set.")
 
 
 # Application definition
@@ -46,9 +54,12 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'banking_api',
+    'django_ratelimit',
     'corsheaders',
     'django_extensions',
     'rest_framework_simplejwt',
+    'csp',
+    'sslserver',
 ]
 
 MIDDLEWARE = [
@@ -60,6 +71,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'csp.middleware.CSPMiddleware',
+    'banking_api.middleware.SecureHeadersMiddleware'
 ]
 
 ROOT_URLCONF = 'secure_banking_project.urls'
@@ -118,6 +131,20 @@ DATABASES = {
         'PASSWORD': 'yourpassword',  # Replace with your database password
         'HOST': 'localhost',       # Use 'localhost' or IP address if not on the same machine
         'PORT': '5432',            # Default PostgreSQL port
+    }
+}
+
+EMAIL_BACKEND = config(
+    'EMAIL_BACKEND', default='django.core.mail.backends.dummy.EmailBackend'
+)
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',  # Local Redis server
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient'
+        }
     }
 }
 
@@ -191,14 +218,42 @@ SIMPLE_JWT = {
 
 # CORS settings
 CORS_ALLOWED_ORIGINS = [
-    "http://127.0.0.1:8000",
-    "http://localhost:3000",  # Add trusted origins for API access
+    "https://127.0.0.1:8000",
+    "https://localhost:3000",  # Add trusted origins for API access
 ]
+
+CSRF_COOKIE_SECURE = True  # Ensure CSRF cookie is only sent over HTTPS
+CSRF_COOKIE_HTTPONLY = True  # Helps prevent client-side access to CSRF cookies
+CSRF_TRUSTED_ORIGINS = [
+    "https://127.0.0.1:8000",
+    "https://localhost:3000",
+]  # Add your trusted origins
 
 # Security enhancements
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
+
+# Set this to prevent clickjacking
 X_FRAME_OPTIONS = 'DENY'
+
+# Ensure SSL connections are used in production
+SECURE_SSL_REDIRECT = False
+SECURE_HSTS_SECONDS = 31536000  # 1 year
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+
+# Set X-Content-Type-Options to prevent browsers from interpreting files as a different MIME type
+SECURE_CONTENT_TYPE_NOSNIFF = True
+
+# Control CORS policy to avoid unwanted cross-origin requests
+CORS_ALLOW_ALL_ORIGINS = False  # Or specify trusted origins
+
+# Protect against content injections via CSP
+CSP_DEFAULT_SRC = ("'self'",)
+CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'")
+CSP_STYLE_SRC = ("'self'", "'unsafe-inline'")
+CSP_IMG_SRC = ("'self'", "data:")
+CSP_FONT_SRC = ("'self'",)
 
 # HTTPS settings for production (disable if developing locally)
 # SECURE_SSL_REDIRECT = True
