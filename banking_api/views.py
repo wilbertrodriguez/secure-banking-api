@@ -29,6 +29,8 @@ from django_ratelimit.decorators import ratelimit
 from ratelimit import limits, sleep_and_retry
 from django.views.decorators.cache import never_cache
 from rest_framework.permissions import AllowAny
+from django.core.exceptions import ValidationError
+from django.contrib.auth import logout
 
 # Define the rate limit for the views
 CALLS = 5  # Max 5 requests
@@ -336,7 +338,7 @@ class LoginView(APIView):
             return Response({"error": "Authentication failed."}, status=status.HTTP_400_BAD_REQUEST)
 
         if not user:
-            return Response({"error": "Invalid email or password."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Invalid email or password."}, status=status.HTTP_401_UNAUTHORIZED)
         
         # Check if MFA is enabled
         try:
@@ -367,6 +369,7 @@ class LoginView(APIView):
             return Response({"error": "User profile not found."}, status=status.HTTP_404_NOT_FOUND)
 
 class VerifyLoginOTPView(APIView):
+    permission_classes = [IsAuthenticated]
     #@ratelimit(key='ip', rate='5/m', method='ALL')
     #@never_cache
     def post(self, request):
@@ -417,4 +420,52 @@ def secure_transaction_view(request):
         
     # Your secure banking logic goes here (e.g., processing the transaction)
     return JsonResponse({'message': 'Transaction successful'})
+
+class ChangePasswordView(APIView):
+    """
+    Allows authenticated users to change their passwords.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        # Extract data from request
+        old_password = request.data.get('old_password')
+        new_password = request.data.get('new_password')
+
+        # Validate inputs
+        if not old_password or not new_password:
+            return JsonResponse(
+                {"error": "Both 'old_password' and 'new_password' are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = request.user
+
+        # Verify the old password
+        if not user.check_password(old_password):
+            return JsonResponse(
+                {"error": "Incorrect old password."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Validate the new password (Optional: Add custom validation rules here)
+        if len(new_password) < 8:
+            return JsonResponse(
+                {"error": "The new password must be at least 8 characters long."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Set and save the new password
+        user.set_password(new_password)
+        user.save()
+
+        # Log out the user after password change
+        logout(request)
+
+        return JsonResponse(
+            {"message": "Password changed successfully."},
+            status=status.HTTP_200_OK,
+        )
+        
+        
             

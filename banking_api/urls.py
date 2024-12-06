@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import RegisterView, AdminOnlyView, AccountInfoView, TransactionView, TransactionHistoryView, BalanceCheckView, VerifyOTPView, LoginView, VerifyLoginOTPView
+from .views import RegisterView, AdminOnlyView, AccountInfoView, TransactionView, TransactionHistoryView, BalanceCheckView, VerifyOTPView, LoginView, VerifyLoginOTPView, ChangePasswordView
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
@@ -17,5 +17,6 @@ urlpatterns = [
     path('balance/', BalanceCheckView.as_view(), name='balance_check'),
     path('verify-otp/', VerifyOTPView.as_view(), name='verify_otp'),
     path('login/', LoginView.as_view(), name='login_mfa'),
-    path('verify-login/', VerifyLoginOTPView.as_view(), name='verify_login')
+    path('verify-login/', VerifyLoginOTPView.as_view(), name='verify_login'),
+    path('change-password/',ChangePasswordView.as_view(),name='change_password')
 ]

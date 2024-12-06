@@ -51,6 +51,25 @@ class UserProfile(models.Model):
             logger.info(f"Creating profile for user {self.user.username} with initial balance {self.balance}")
         super().save(*args, **kwargs)
         
+    # Change password method
+    def change_password(self, old_password, new_password):
+        # Check if the old password is correct
+        if not check_password(old_password, self.user.password):
+            raise ValidationError("The old password is incorrect.")
+
+        # Validate the new password (you can add your own password strength checks here)
+        if len(new_password) < 8:  # Example: Minimum length requirement
+            raise ValidationError("The new password must be at least 8 characters long.")
+        
+        # Set the new password
+        self.user.password = make_password(new_password)  # Hash and save new password
+        self.user.save()  # Save the user object
+
+        # Optionally log the action
+        logger.info(f"Password for user {self.user.username} has been changed successfully.")
+
+        return True  # Indicating the password change was successful
+        
     def reset_failed_attempts(self):
         self.failed_login_attempts = 0
         self.save()

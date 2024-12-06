@@ -52,6 +52,7 @@ class TransactionViewTestCase(TransactionTestCase):
         self.verify_otp_url = '/api/verify-otp/'  # Adjust the URL as per your app
         self.login_url = '/api/login/'
         self.verify_login_url = '/api/verify-login/'
+        self.change_password_url = '/api/change-password/'
 
         # Mocking the email sending function to avoid actually sending emails
         self.patcher = patch('banking_api.utils.send_mail')
@@ -277,3 +278,91 @@ class TransactionViewTestCase(TransactionTestCase):
 
         # Now the user should be fully logged in and can proceed to perform actions
         print("Logged in successfully. User is authenticated.")
+       
+    @patch('banking_api.utils.send_mail')   
+    def test_change_password(self, mock_send_email):
+        """
+        Test that a user can change their password successfully.
+        """
+        # Define the endpoint for changing password
+        change_password_url = '/api/change-password/'  # Adjust to match your app's endpoint
+        
+        registration_data = {
+            'username': 'testtest',
+            'email': 'testtest@example.com',
+            'password': 'securepassword123'
+        }
+
+        response = self.client.post(self.register_url, registration_data, format='json',follow=True)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        
+        mock_send_email.assert_any_call(
+            'Your OTP Code',
+            mock.ANY,  # The exact OTP content will vary; you could refine this with regex if needed
+            'webmaster@localhost',
+            ['testtest@example.com']
+        )
+        
+        # Fetch the created user from the database
+        news_user = User.objects.get(username=registration_data['username'])
+        news_profile = news_user.profile
+        otp = news_profile.otp  # OTP generated during registration
+        print("Generated OTP:", otp)
+        
+        # Now authenticate the new user
+        refresh = RefreshToken.for_user(news_user)
+        access_token = str(refresh.access_token)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_token}')
+        
+        # Verify the OTP
+        print("Verifying OTP...")
+        otp_response = self.client.post(self.verify_otp_url, {'otp': otp}, format='json')
+        print("OTP Response Content:", otp_response.data)
+
+        # Assert OTP verification is successful
+        self.assertEqual(otp_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(otp_response.data['message'], 'OTP verified successfully!')
+        
+        # Assert that the OTP is cleared after successful verification
+        news_profile.refresh_from_db()  # Fetch the latest data from the DB
+        self.assertIsNone(news_profile.otp)  # Ensure OTP is cleared
+        self.assertIsNone(news_profile.otp_expiration)  # Ensure expiration is cleared
+
+        # Data for changing password
+        change_password_data = {
+            'old_password': 'securepassword123',  # The current password
+            'new_password': 'newsecurepassword123'  # The new password
+        }
+
+        # Send request to change password
+        response = self.client.post(change_password_url, change_password_data, format='json')
+        response_json = response.json()
+        print('response')
+        print(response_json)
+
+        # Assert that the response is successful
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response_json['message'], 'Password changed successfully.')
+
+        # Attempt login with the old password (should fail)
+        print(news_user.email)
+        old_login_data = {
+            'email': news_user.email,
+            'password': 'securepassword123'  # Old password
+        }
+        old_login_response = self.client.post(self.login_url, old_login_data, format='json')
+        old_login_response_json = old_login_response.json()
+        print(old_login_response_json)
+        self.assertEqual(old_login_response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertIn('Invalid email or password.', old_login_response_json['error'])
+
+        # Attempt login with the new password (should succeed)
+        new_login_data = {
+            'email': news_user.email,
+            'password': 'newsecurepassword123'  # New password
+        }
+        new_login_response = self.client.post(self.login_url, new_login_data, format='json')
+        new_login_response_json = new_login_response.json()
+        print(new_login_response_json)
+        self.assertEqual(new_login_response.status_code, status.HTTP_200_OK)
+        self.assertIn('access_token', new_login_response_json)  # Verify the access token is returned
